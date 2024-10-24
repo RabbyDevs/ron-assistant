@@ -59,7 +59,7 @@ async fn do_image_logging(ctx: &serenity::Context, bot_icon: String, bot_color: 
         let bot_icon= bot_icon.clone();
         tokio::spawn(async move {
             if guild_id.is_some() && guild_id.unwrap().to_string() == CONFIG.modules.logging.guild_id.to_string() {
-                let log_channel_id = ChannelId::new(CONFIG.modules.logging.logging_channel_id.parse::<u64>().unwrap());
+                let log_channel_id = ChannelId::new(CONFIG.modules.logging.attachment_logging_channel_id.parse::<u64>().unwrap());
                 let output_filename = format!("./.tmp/{}", attachment.filename);
                 let response = reqwest_client.get(&attachment.url).send().await.unwrap();
                 let bytes = response.bytes().await.unwrap();
@@ -117,7 +117,7 @@ async fn reaction_logging(
     guild_id: Option<GuildId>, 
     emoji: Option<&ReactionType>
 ) {
-    let log_channel_id = ChannelId::new(CONFIG.modules.logging.logging_channel_id.parse().unwrap());
+    let log_channel_id = ChannelId::new(CONFIG.modules.logging.reaction_logging_channel.parse().unwrap());
     let mut embed_builder = CreateEmbed::new();
     
     let emoji_url = match emoji {
@@ -201,7 +201,7 @@ async fn event_handler(
         }
 
         serenity::FullEvent::Message { new_message } => {
-            if new_message.channel_id.to_string() == CONFIG.modules.logging.cdn_channel_id.to_string() || new_message.channel_id.to_string() == CONFIG.modules.logging.logging_channel_id.to_string() {
+            if new_message.channel_id.to_string() == CONFIG.modules.logging.cdn_channel_id.to_string() || new_message.channel_id.to_string() == CONFIG.modules.logging.attachment_logging_channel_id.to_string() {
                 return Ok(());
             }
             if new_message.attachments.is_empty() {

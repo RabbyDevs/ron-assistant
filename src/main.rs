@@ -40,7 +40,7 @@ struct Data {
     pub queued_logs: Arc<Mutex<Vec<LoggingQueue>>>,
     pub policy_system: PolicySystem,
     pub bot_color: Color
-} // User data, which is stored and accessible in all command invocations
+}
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
@@ -181,10 +181,8 @@ async fn event_handler(
                     let user_id = UserId::from_str(user_id.as_str()).expect("Invalid user ID");
                     let role_id = RoleId::from_str(role_id.as_str()).expect("Invalid role ID");
     
-                    // Fetch the guilds the bot is in
                     let guilds = ctx.cache.guilds();
     
-                    // Find the guild and role
                     for guild_id in guilds {
                         if let Ok(guild) = guild_id.to_partial_guild(&ctx).await {
                             if let Ok(member) = guild.member(&ctx.http, user_id).await {
@@ -386,13 +384,13 @@ async fn main() {
                 auror::id_to_mention()
             ];
 
-    let color_string = CONFIG.main.color; // Assuming this retrieves the "43, 63, 102" string
+    let color_string = CONFIG.main.color;
     let colors: Vec<u8> = color_string
         .split(',')
         .map(|s| u8::from_str(s.trim()).expect("Failed to parse color component"))
         .collect();
             
-    let (r, g, b) = (colors[0], colors[1], colors[2]); // Extract r, g, b values
+    let (r, g, b) = (colors[0], colors[1], colors[2]);
     
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
@@ -425,7 +423,6 @@ async fn main() {
 
     let mut client = serenity::ClientBuilder::new(discord_api_key, intents)
         .framework(framework)
-        // .type_map_insert::<BotData>(ctx.data().clone())
         .await
         .expect("client start err");
 

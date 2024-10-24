@@ -73,11 +73,9 @@ impl PolicySystem {
         Ok(policies)
     }
 
-    /// Updates the policies and sends messages to the relevant Discord channels
     pub async fn update_policy(&self, ctx: &Context) -> sled::Result<()> {
         let policies = self.list_policies()?;
     
-        // Sort the policies by order and prepare the file contents
         let mut file_contents = String::new();
         for (_, policy) in policies.iter() {
             file_contents.push_str(&format!(
@@ -86,15 +84,12 @@ impl PolicySystem {
             ));
         }
     
-        // Define paths for the policy files
         let previous_file_path = Path::new("policy.txt");
         let current_file_path = Path::new("current_policy.txt");
     
-        // Compare with previous file if it exists
         if previous_file_path.exists() {
             let previous_content = fs::read_to_string(previous_file_path).unwrap_or_default();
             if previous_content != file_contents {
-                // Send policy changes to the changes channel
                 let changes_channel_id = CONFIG.modules.policy.policy_changes_channel_id.parse::<u64>().unwrap();
                 let changes_channel = ctx.http.get_channel(changes_channel_id.into()).await.unwrap();
     
@@ -103,26 +98,21 @@ impl PolicySystem {
             }
         }
     
-        // Write the current policy to the file
         let mut file = fs::File::create(current_file_path)?;
         file.write_all(file_contents.as_bytes())?;
     
-        // Send the current policy to the policy channel in sections
         let policy_channel_id = CONFIG.modules.policy.policy_channel_id.parse::<u64>().unwrap();
         let policy_channel = ctx.http.get_channel(policy_channel_id.into()).await.unwrap();
     
         let policy_actual_id = ChannelId::new(policy_channel_id);
-        // Step 1: Delete all messages in the policy channel
         let mut message_stream = policy_actual_id.messages_iter(ctx).boxed();
         let mut messages_to_delete = Vec::new();
                         
-        // Collect all message IDs
         while let Some(message_result) = message_stream.next().await {
             let message = message_result.unwrap();
             messages_to_delete.push(message.id);
         }
                         
-        // Bulk delete messages in chunks of 100 (Discord's limit per request)
         while !messages_to_delete.is_empty() {
             let to_delete = messages_to_delete.split_off(messages_to_delete.len().saturating_sub(100));
             policy_actual_id.delete_messages(ctx, to_delete).await.unwrap();
@@ -139,7 +129,6 @@ impl PolicySystem {
             }
         }
     
-        // Sort message_links by the numeric prefix of the heading
         message_links.sort_by(|(a, _), (b, _)| {
             let a_num = extract_number(a);
             let b_num = extract_number(b);
@@ -148,15 +137,12 @@ impl PolicySystem {
     
         let mut toc_content = String::new();
     
-        // Prepare the table of contents with links
         for (index, (heading, link)) in message_links.iter().enumerate() {
             toc_content.push_str(&format!("{}. [{}]({})\n", index + 1, heading, link));
         }
     
-        // Send the table of contents, splitting if necessary
         send_long_message(ctx, &policy_channel.id(), &format!("# Table of Contents:\n{}", toc_content)).await;
     
-        // Move current policy file to previous
         fs::rename(current_file_path, previous_file_path)?;
     
         Ok(())
@@ -171,7 +157,6 @@ impl PolicySystem {
     }
 }
 
-// Helper function to diff policies and return the changes
 fn diff_policies(previous: &str, current: &str) -> String {
     use similar::{TextDiff, ChangeTag};
 
@@ -194,21 +179,16 @@ async fn send_long_message(ctx: &Context, channel_id: &ChannelId, content: &str)
     let mut buffer = String::new();
     
     for line in content.lines() {
-        // Check if adding the next line would exceed the 2000 character limit
         if buffer.len() + line.len() + 1 > 2000 {
-            // Send the current buffer as a message
             let message = channel_id.say(ctx, buffer.clone()).await.unwrap();
             messages.push(message);
-            // Reset the buffer
             buffer.clear();
         }
         
-        // Append the line to the buffer, adding a newline
         buffer.push_str(line);
         buffer.push('\n');
     }
 
-    // Send any remaining content in the buffer
     if !buffer.is_empty() {
         let message = channel_id.say(ctx, buffer).await.unwrap();
         messages.push(message);
@@ -217,17 +197,15 @@ async fn send_long_message(ctx: &Context, channel_id: &ChannelId, content: &str)
     messages
 }
 
-// Helper function to extract the first heading from the content
 fn extract_first_heading(content: &str) -> Option<String> {
     content.lines()
         .find(|line| line.starts_with('#'))
         .map(|line| line.trim_start_matches('#').trim().to_string())
 }
 
-// Helper function to extract the numeric prefix from a heading
 fn extract_number(heading: &str) -> u32 {
     heading.split_whitespace()
         .next()
         .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(u32::MAX)  // If parsing fails, consider it as the largest number
+        .unwrap_or(u32::MAX)
 }

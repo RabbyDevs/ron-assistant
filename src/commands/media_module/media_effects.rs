@@ -29,7 +29,6 @@ pub async fn media(_: Context<'_>) -> Result<(), Error> {
 }
 
 #[poise::command(prefix_command, slash_command)]
-/// Command for adding a speech bubble to any image or video, with the ability to convert to gif.
 pub async fn speechbubble(
     ctx: Context<'_>,
     #[description = "Attachment for command."] attachment: Attachment,
@@ -37,6 +36,7 @@ pub async fn speechbubble(
     #[description = "A bit technical, but what should the height of the overlay be divided by? In 0.0-1.0."] height_float: Option<f32>,
     #[description = "Should the speech bubble be flipped horizontally?"] flip: Option<bool>,
     #[description = "Should the speech bubble be transparent? By default set to true if image."] transparent: Option<bool>,
+    #[description = "Should the speech bubble be, if its an image, be converted to gif? False for yes, true for no."] no_force_gif: Option<bool>,
 ) -> Result<(), Error> {
     let msg = ctx.say("Adding speechbubble...").await?;
     let style = style.unwrap_or(SpeechBubbleOverlays::EsmBotStyle);
@@ -59,13 +59,19 @@ pub async fn speechbubble(
     file.write_all(&bytes)?;
     
     let overlay_path = format!("./.default_masks/{}.png", style);
-    let output_path = format!("./.tmp/{}", attachment.filename);
 
     if !Path::new(&overlay_path).exists() {
         return Err(format!("Overlay file not found: {}", overlay_path).into());
     }
 
-    apply_mask(&input_path, &overlay_path, &output_path, flip.unwrap_or(false), height_float.unwrap_or(0.2), transparent.unwrap_or(true)).unwrap();
+    let output_path = match apply_mask(&input_path, &overlay_path, flip.unwrap_or(false), height_float.unwrap_or(0.2), transparent.unwrap_or(true), no_force_gif.unwrap_or(false)) {
+        Ok(str) => {
+            str
+        },
+        Err(err) => {
+            return Err(err.into());
+        }
+    };
 
     let file = serenity::all::CreateAttachment::path(&output_path).await?;
     msg.into_message().await?.edit(ctx.http(), EditMessage::new().new_attachment(file).content("Done!")).await?;

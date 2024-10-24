@@ -13,24 +13,131 @@ use tempfile::tempdir;
 pub fn apply_mask(
     input_path: &str,
     overlay_path: &str,
+    flip_overlay: bool,
+    height_float: f32,
+    transparent: bool,
+    no_force_gif: bool
+) -> Result<String, String> {
+    let input_extension = Path::new(input_path).extension().and_then(|s| s.to_str()).unwrap_or("");
+    
+    let temp_dir_path = Path::new(".tmp");
+    
+    fs::create_dir_all(temp_dir_path).unwrap();
+
+    let conversion_result = match input_extension.to_lowercase().as_str() {
+        "jpg" | "jpeg" | "bmp" | "tiff" | "webp" | "ico" | "heic" | "heif" | 
+        "raw" | "cr2" | "nef" | "arw" | "dng" | "psd" => {
+            image_to_png_converter(input_path, input_path);
+            Ok(())
+        },
+        
+        "mov" | "avi" | "wmv" | "flv" | "mkv" | "webm" | "m4v" | "3gp" | "mpeg" | 
+        "mpg" | "divx" | "vob" | "mts" | "m2ts" | "ts" => {
+            video_format_changer(&input_path.to_string(), &input_path.to_string());
+            Ok(())
+        },
+        
+        "png" | "mp4" | "gif" => Ok(()),
+        
+        _ => {
+            println!("Skipping unsupported format: {}", input_extension);
+            Err(())
+        },
+    };
+
+    let file_name = Uuid::new_v4();
+
+    if conversion_result.is_err() {
+        Err("Uh oh, that's a bad file format.".to_string())
+    } else {
+        match input_extension.to_lowercase().as_str() {
+            "png" => {
+                let mut output_path = format!(".tmp/{}.png", file_name);
+                apply_image_mask(input_path, overlay_path, output_path.as_str(), flip_overlay, height_float, transparent).unwrap();
+    
+                if no_force_gif != true {
+                    output_path = format!(".tmp/{}.gif", file_name);
+                    png_to_gif_converter(format!(".tmp/{}.png", file_name).as_str(), output_path.as_str(), QualityPreset::HighQuality).unwrap();
+                }
+    
+                Ok(output_path.to_string())
+            },
+            "gif" => {
+                let output_path = format!(".tmp/{}.gif", file_name);
+                apply_gif_mask(input_path, overlay_path, output_path.as_str(), flip_overlay, height_float, transparent).unwrap();
+    
+                Ok(output_path.to_string())
+            },
+            "mp4" => {
+                let output_path = format!(".tmp/{}.mp4", file_name);
+                apply_video_mask(temp_dir_path, input_path, overlay_path, output_path.as_str(), flip_overlay, height_float).unwrap();
+    
+                Ok(output_path.to_string())
+            },
+
+            _ => {
+                Err("Uh oh, that's a bad file format.".to_string())
+            }
+        }
+    }
+}
+
+fn apply_gif_mask(
+    input_path: &str,
+    overlay_path: &str,
     output_path: &str,
     flip_overlay: bool,
     height_float: f32,
     transparent: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let input_extension = Path::new(input_path).extension().and_then(|s| s.to_str()).unwrap_or("");
+    let temp_dir = tempdir()?;
+    let temp_dir_path = temp_dir.path();
     
-    let temp_dir_path = Path::new(".tmp");
+    let frames_path = temp_dir_path.join("frame_%04d.png");
+    Command::new("ffmpeg")
+        .args(&[
+            "-i", input_path,
+            frames_path.to_str().unwrap()
+        ])
+        .output()?;
     
-    fs::create_dir_all(temp_dir_path)?;
+    let frame_paths: Vec<_> = fs::read_dir(temp_dir_path)?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry.file_name()
+                .to_str()
+                .map(|s| s.starts_with("frame_"))
+                .unwrap_or(false)
+        })
+        .map(|entry| entry.path())
+        .collect();
     
-    let result = match input_extension.to_lowercase().as_str() {
-        "png" | "jpg" | "jpeg" => apply_image_mask(input_path, overlay_path, output_path, flip_overlay, height_float, transparent),
-        "mp4" | "mov" => apply_video_mask(temp_dir_path, input_path, overlay_path, output_path, flip_overlay, height_float),
-        _ => Err("Unsupported file format".into()),
-    };
+    frame_paths.par_iter().for_each(|frame_path| {
+        let output_frame = temp_dir_path.join(format!(
+            "output_{}",
+            frame_path.file_name().unwrap().to_str().unwrap()
+        ));
+        
+        apply_image_mask(
+            frame_path.to_str().unwrap(),
+            overlay_path,
+            output_frame.to_str().unwrap(),
+            flip_overlay,
+            height_float,
+            transparent,
+        ).unwrap();
+    });
     
-    result
+    Command::new("ffmpeg")
+        .args(&[
+            "-i", temp_dir_path.join("output_frame_%04d.png").to_str().unwrap(),
+            "-vf", "split[a][b];[a]palettegen=max_colors=256[p];[b][p]paletteuse=dither=bayer",
+            "-framerate", "25",
+            output_path
+        ])
+        .output()?;
+    
+    Ok(())
 }
 
 fn apply_image_mask(
@@ -101,7 +208,6 @@ fn apply_video_mask(
     fs::copy(input_path, &temp_input_path)?;
     fs::copy(overlay_path, &temp_overlay_path)?;
 
-    // Extract frames from input video
     let mut command = Command::new("ffmpeg");
     command.arg("-i").arg(&temp_input_path);
     command.arg("-vf");
@@ -110,14 +216,11 @@ fn apply_video_mask(
     command.arg("2");
     command.arg(temp_dir.join("frame_%03d.png"));
 
-    // println!("Executing command: {:?}", command);
     let output = command.output()?;
-    // println!("Command output: {:?}", output);
     if!output.status.success() {
         return Err(format!("FFmpeg command failed: {:#?}", output).into());
     }
 
-    // Apply mask to each frame in parallel
     let frame_paths: Vec<_> = fs::read_dir(temp_dir)?
        .filter_map(|entry| entry.ok())
        .filter(|entry| entry.file_type().ok().map_or(false, |ft| ft.is_file()))
@@ -128,7 +231,6 @@ fn apply_video_mask(
     println!("Applying mask to {} frames", frame_paths.len());
     frame_paths.par_iter().for_each(|path| {
         let output_path = temp_dir.join(format!("output_{:03}", path.file_name().unwrap().to_str().unwrap()));
-        // println!("Applying mask to frame: {:?}", path);
         apply_image_mask(
             path.to_str().unwrap(),
             temp_overlay_path.to_str().unwrap(),
@@ -138,30 +240,25 @@ fn apply_video_mask(
             false,
         )
        .unwrap();
-        // println!("Mask applied to frame: {:?}", path);
     });
 
-    // Combine edited frames into output video
     let mut command = Command::new("ffmpeg");
     command.arg("-framerate").arg("25");
     command.arg("-i").arg(temp_dir.join("output_frame_%03d.png"));
     command.arg("-c:v");
     command.arg("libvpx-vp9");
     command.arg("-pix_fmt");
-    command.arg("yuva420p"); // Use yuva420p for alpha channels
+    command.arg("yuva420p");
     command.arg("-crf");
     command.arg("18");
-    command.arg("-y"); // Add this option to force overwriting
+    command.arg("-y");
     command.arg(output_path);
 
-    // println!("Executing command: {:?}", command);
     let output = command.output()?;
-    // println!("Command output: {:?}", output);
     if!output.status.success() {
         return Err(format!("FFmpeg command failed: {:#?}", output).into());
     }
 
-        // Clean up temporary files
     fs::remove_file(&temp_input_path)?;
     fs::remove_file(&temp_overlay_path)?;
     for path in frame_paths {
@@ -194,13 +291,11 @@ pub async fn video_convert(new_message: Message, ctx: serenity::prelude::Context
     let input_filename = format!("./.tmp/input_{}.tmp", Uuid::new_v4());
     let output_filename = format!("./.tmp/output_{}.mp4", Uuid::new_v4());
 
-    // Download the file
     let response = reqwest_client.get(&attachment.url).send().await.unwrap();
     let bytes = response.bytes().await.unwrap();
     let mut file = std::fs::File::create(&input_filename).expect("Failed to create input file");
     file.write_all(&bytes).expect("Failed to write input file");
 
-    // Convert the video using FFmpeg
     let output = video_format_changer(&input_filename, &output_filename);
 
     if output.status.success() {

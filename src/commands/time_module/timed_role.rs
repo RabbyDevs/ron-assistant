@@ -18,8 +18,10 @@ pub async fn add(
     #[description = "Users for the command, only accepts Discord ids."] users: String,
     #[description = "Type of infraction."] role: serenity::model::guild::Role,
     #[description = "Duration of the probation (e.g., '1h', '2d', '1w')."] duration: String,
+    #[description = "Delete the timer when the user gets banned (defaults to true)?"] delete_on_ban: Option<bool>,
 ) -> Result<(), Error> {
     ctx.defer().await?;
+    let delete_on_ban = delete_on_ban.unwrap_or(true);
 
     let purified_users = ctx.data().number_regex.replace_all(users.as_str(), "");
     if purified_users.is_empty() {
@@ -45,7 +47,7 @@ pub async fn add(
     let duration_secs = unix_timestamp - current_time;
 
     for user_id in users {
-        let timer_id = match ctx.data().timer_system.add_timer(user_id.to_string(), role.id.to_string(), duration_secs, false, None).await {
+        let timer_id = match ctx.data().timer_system.add_timer(user_id.to_string(), role.id.to_string(), duration_secs, false, None, delete_on_ban).await {
             Ok(id) => id,
             Err(err) => {
                 ctx.say(format!("Failed to add timer for user {}: {}", user_id, err)).await?;

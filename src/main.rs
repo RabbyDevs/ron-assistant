@@ -294,6 +294,20 @@ async fn event_handler(
                 data.timer_system.toggle_timer(&user_id, &timer.timer_id).await?;
             }
         }
+
+        serenity::FullEvent::GuildBanAddition { banned_user, guild_id: _ } => {
+            let timer_system = framework.user_data.timer_system.clone();
+            let user_id = banned_user.id.to_string();
+
+            let timers = timer_system.list_user_timers(&user_id).await;
+            if !timers.is_empty() {
+                for timer in timers {
+                    if timer.delete_on_ban {
+                        timer_system.delete_timer(&user_id, &timer.timer_id).await?;
+                    }
+                }
+            }
+        }
         
         serenity::FullEvent::ReactionAdd { add_reaction } => {
             reaction_logging(

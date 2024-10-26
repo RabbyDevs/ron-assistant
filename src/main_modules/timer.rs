@@ -6,6 +6,7 @@ use sled::Db;
 use futures::future::BoxFuture;
 use serde::{Serialize, Deserialize};
 
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TimerData {
     pub timer_id: String,
@@ -14,6 +15,7 @@ pub struct TimerData {
     pub is_paused: bool,
     pub paused_duration: u64,
     pub schema_version: u32,
+    pub delete_on_ban: bool,  // New field
 }
 
 #[derive(Clone, Debug)]
@@ -22,13 +24,13 @@ pub struct UserTimer {
     role_id: String,
     paused_at: Option<Instant>,
     paused_duration: Duration,
+    delete_on_ban: bool,  // New field
 }
 
 type EventHandler = Arc<Mutex<Box<dyn Fn(String, String) -> BoxFuture<'static, ()> + Send + Sync>>>;
 
 pub struct TimerSystem {
     db: Arc<Db>,
-    // Changed to support multiple timers per user
     timers: Arc<Mutex<HashMap<String, HashMap<String, UserTimer>>>>,
     event_handler: EventHandler,
 }
@@ -47,7 +49,6 @@ impl TimerSystem {
         };
 
         println!("Starting database migration check...");
-        // Run migration synchronously to ensure it completes before any other operations
         if let Err(e) = system.migrate_database().await {
             println!("Error during migration: {:?}", e);
         }
@@ -97,6 +98,7 @@ impl TimerSystem {
                         role_id: migrated_data.role_id.clone(),
                         paused_at: if migrated_data.is_paused { Some(Instant::now()) } else { None },
                         paused_duration: Duration::from_secs(migrated_data.paused_duration),
+                        delete_on_ban: true,
                     };
 
                     println!("Successfully converted user timer, {:#?}", timer);
@@ -158,6 +160,7 @@ impl TimerSystem {
                     role_id: timer_data.role_id.clone(),
                     paused_at: if timer_data.is_paused { Some(Instant::now()) } else { None },
                     paused_duration: Duration::from_secs(timer_data.paused_duration),
+                    delete_on_ban: timer_data.delete_on_ban,
                 };
 
                 // Asynchronously update the in-memory timers
@@ -173,7 +176,6 @@ impl TimerSystem {
     }
 
     fn migrate_old_format(&self, user_id: &str, value: &[u8]) -> sled::Result<Option<TimerData>> {
-        // Check minimum length for old format
         if value.len() < 8 {
             return Ok(None);
         }
@@ -191,10 +193,8 @@ impl TimerSystem {
                     0
                 };
 
-                // Generate a unique timer_id for the migrated timer
                 let timer_id = format!("migrated_{}", uuid::Uuid::new_v4());
                 
-                // Create new format timer data
                 let timer_data = TimerData {
                     timer_id: timer_id.clone(),
                     role_id,
@@ -202,9 +202,9 @@ impl TimerSystem {
                     is_paused,
                     paused_duration,
                     schema_version: 2,
+                    delete_on_ban: true,  // Default value for migrated timers
                 };
 
-                // Save in new format with user_id included in the key
                 let new_key = format!("{}:{}", user_id, timer_id);
                 let new_value = bincode::serialize(&timer_data).unwrap();
                 self.db.insert(new_key.as_bytes(), new_value)?;
@@ -216,7 +216,15 @@ impl TimerSystem {
         Ok(None)
     }
 
-    pub async fn add_timer(&self, user_id: String, role_id: String, duration_secs: u64, is_paused: bool, paused_duration: Option<u64>) -> sled::Result<String> {
+    pub async fn add_timer(
+        &self,
+        user_id: String,
+        role_id: String,
+        duration_secs: u64,
+        is_paused: bool,
+        paused_duration: Option<u64>,
+        delete_on_ban: bool,  // New parameter
+    ) -> sled::Result<String> {
         let timer_id = uuid::Uuid::new_v4().to_string();
         let end_time = Instant::now() + Duration::from_secs(duration_secs);
         let end_timestamp = std::time::SystemTime::now()
@@ -235,6 +243,7 @@ impl TimerSystem {
             role_id: role_id.clone(),
             paused_at: if is_paused { Some(Instant::now()) } else { None },
             paused_duration: paused_duration.map(Duration::from_secs).unwrap_or(Duration::from_secs(0)),
+            delete_on_ban,  // New field
         };
 
         user_timers.insert(timer_id.clone(), timer);
@@ -246,6 +255,7 @@ impl TimerSystem {
             is_paused,
             paused_duration: paused_duration.unwrap_or(0),
             schema_version: 2,
+            delete_on_ban,  // New field
         };
 
         let db_key = format!("{}:{}", user_id, timer_id);
@@ -336,6 +346,7 @@ impl TimerSystem {
                     is_paused: timer.paused_at.is_some(),
                     paused_duration: timer.paused_duration.as_secs(),
                     schema_version: 2,
+                    delete_on_ban: timer.delete_on_ban,  // Include in output
                 };
                 
                 result.push(timer_data);
@@ -454,6 +465,7 @@ impl TimerSystem {
                                 is_paused: false,
                                 paused_duration: timer.paused_duration.as_secs(),
                                 schema_version: 2,
+                                delete_on_ban: timer.delete_on_ban
                             };
 
                             let db_key = format!("{}:{}", user_id, timer_id);

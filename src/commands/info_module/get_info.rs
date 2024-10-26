@@ -2,7 +2,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Local};
 use regex::Regex;
 use serenity::all::EditMessage;
-use serenity::builder::{CreateEmbed, CreateEmbedFooter};
 use serenity::builder::CreateMessage;
 use super::{Context, Error, helper, FromStr, CONFIG};
 
@@ -38,19 +37,16 @@ pub async fn getinfo(
         let user_details = ctx.data().rbx_client.user_details(id.parse::<u64>().expect("Invalid user ID")).await?;
 
         ctx.channel_id().say(&ctx.http(), "### Username").await?;
-        ctx.channel_id().say(&ctx.http(), format!("{}", user_details.username)).await?;
+        ctx.channel_id().say(&ctx.http(), user_details.username.to_string()).await?;
         ctx.channel_id().say(&ctx.http(), "### User ID").await?;
         ctx.channel_id().say(&ctx.http(), format!("{}", user_details.id)).await?;
 
         let avatar_image = helper::get_roblox_avatar_bust(&ctx.data().reqwest_client, user_details.id.to_string()).await;
         // Prepare initial embed with basic info
-        let footer = CreateEmbedFooter::new("Made by RabbyDevs, with 🦀 and ❤️.")
-        .icon_url(ctx.framework().bot_id.to_user(ctx.http()).await?.avatar_url().unwrap());
-        let mut embed = CreateEmbed::default()
+        let mut embed = helper::new_embed_from_template(ctx.data()).await
             .title(format!("Extra Information - {}", user_details.display_name))
             .color(ctx.data().bot_color)
-            .footer(footer)
-            .thumbnail(format!("{}", avatar_image.as_str()))
+            .thumbnail(avatar_image.as_str().to_string())
             .field("User Link", format!("https://roblox.com/users/{}", user_details.id), true);
 
         let sanitized_description = new_line_regex.replace(&user_details.description, "").into_owned();
@@ -65,7 +61,7 @@ pub async fn getinfo(
         };
 
         embed = embed
-            .field("Description", sanitized_description.is_empty().then(|| "No description found.").unwrap_or(&sanitized_description), false)
+            .field("Description", if sanitized_description.is_empty() { "No description found." } else { &sanitized_description }, false)
             .field("Account Creation", format!("<t:{}:D>{}", created_at_timestamp, new_account_message), false);
 
         let mut init_message = ctx.channel_id().send_message(&ctx.http(), CreateMessage::new().add_embed(embed.clone())).await?;

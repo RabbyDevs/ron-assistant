@@ -33,7 +33,7 @@ pub fn apply_mask(
         
         "mov" | "avi" | "wmv" | "flv" | "mkv" | "webm" | "m4v" | "3gp" | "mpeg" | 
         "mpg" | "divx" | "vob" | "mts" | "m2ts" | "ts" => {
-            video_format_changer(&input_path.to_string(), &input_path.to_string());
+            video_format_changer(input_path, input_path);
             Ok(())
         },
         
@@ -55,9 +55,10 @@ pub fn apply_mask(
                 let mut output_path = format!(".tmp/{}.png", file_name);
                 apply_image_mask(input_path, overlay_path, output_path.as_str(), flip_overlay, height_float, transparent).unwrap();
     
-                if no_force_gif != true {
+                if !no_force_gif {
                     output_path = format!(".tmp/{}.gif", file_name);
                     png_to_gif_converter(format!(".tmp/{}.png", file_name).as_str(), output_path.as_str(), QualityPreset::HighQuality).unwrap();
+                    fs::remove_file(format!(".tmp/{}.png", file_name)).unwrap();
                 }
     
                 Ok(output_path.to_string())
@@ -95,7 +96,7 @@ fn apply_gif_mask(
     
     let frames_path = temp_dir_path.join("frame_%04d.png");
     Command::new("ffmpeg")
-        .args(&[
+        .args([
             "-i", input_path,
             frames_path.to_str().unwrap()
         ])
@@ -129,7 +130,7 @@ fn apply_gif_mask(
     });
     
     Command::new("ffmpeg")
-        .args(&[
+        .args([
             "-i", temp_dir_path.join("output_frame_%04d.png").to_str().unwrap(),
             "-vf", "split[a][b];[a]palettegen=max_colors=256[p];[b][p]paletteuse=dither=bayer",
             "-framerate", "25",
@@ -269,9 +270,9 @@ fn apply_video_mask(
     Ok(())
 }
 
-pub fn video_format_changer(input_filename: &String, output_filename: &String) -> Output {
+pub fn video_format_changer(input_filename: &str, output_filename: &str) -> Output {
     let output = Command::new("ffmpeg")
-        .args(&[
+        .args([
             "-i", input_filename,
             "-c:v", "libx264",
             "-preset", "medium",
@@ -303,7 +304,7 @@ pub async fn video_convert(new_message: Message, ctx: serenity::prelude::Context
         let build = EditMessage::new().new_attachment(file).content("Done!");
         match msg.edit(&ctx.http, build).await {
             Ok(()) => (),
-            Err(_) => {msg.edit(&ctx.http, EditMessage::new().content("Message failed to edit, file may have been too large!")).await.unwrap(); ()} 
+            Err(_) => {msg.edit(&ctx.http, EditMessage::new().content("Message failed to edit, file may have been too large!")).await.unwrap(); } 
         };
     } else {
         println!("FFmpeg conversion failed: {:?}", String::from_utf8_lossy(&output.stderr));
@@ -311,13 +312,13 @@ pub async fn video_convert(new_message: Message, ctx: serenity::prelude::Context
         let _ = std::fs::remove_file(&input_filename);
     }
 
-    let _ = std::fs::remove_file(&input_filename);
-    let _ = std::fs::remove_file(&output_filename);
+    std::fs::remove_file(&input_filename).unwrap();
+    std::fs::remove_file(&output_filename).unwrap();
 }
 
 pub fn image_to_png_converter(input_filename: &str, output_filename: &str) -> Output {
     let output = Command::new("ffmpeg")
-        .args(&[
+        .args([
             "-i", input_filename,
             "-format", "png",
             "-lossless", "1",
@@ -383,7 +384,7 @@ pub fn video_to_gif_converter(input_filename: &str, output_filename: &str, prese
     let segment_pattern = temp_path.join("segment_%03d.mp4").to_str().unwrap().to_string();
     
     Command::new("ffmpeg")
-        .args(&[
+        .args([
             "-i", input_filename,
             "-c", "copy",
             "-f", "segment",
@@ -410,7 +411,7 @@ pub fn video_to_gif_converter(input_filename: &str, output_filename: &str, prese
             );
 
             Command::new("ffmpeg")
-                .args(&[
+                .args([
                     "-i", path.to_str().unwrap(),
                     "-filter_complex", &filter_complex,
                     "-compression_level", compression,
@@ -450,7 +451,7 @@ fn combine_gifs(segments: &[PathBuf], temp_path: &Path, output_filename: &str) -
 
     let temp_output = temp_path.join("temp_output.gif");
     Command::new("ffmpeg")
-        .args(&[
+        .args([
             "-f", "concat",
             "-safe", "0",
             "-i", concat_list.to_str().unwrap(),
@@ -468,7 +469,7 @@ fn combine_gifs(segments: &[PathBuf], temp_path: &Path, output_filename: &str) -
         writeln!(final_concat_file, "file '{}'", temp_output.to_str().unwrap())?;
 
         Command::new("ffmpeg")
-            .args(&[
+            .args([
                 "-f", "concat",
                 "-safe", "0",
                 "-i", final_concat_list.to_str().unwrap(),
@@ -515,7 +516,7 @@ pub fn png_to_gif_converter(input_filename: &str, output_filename: &str, preset:
     );
 
     Command::new("ffmpeg")
-        .args(&[
+        .args([
             "-i", input_filename,
             "-filter_complex", &filter_complex,
             "-loop", "0",

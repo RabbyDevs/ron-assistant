@@ -13,6 +13,7 @@ pub struct PolicyEntry {
     pub order: u64,
 }
 
+#[derive(Clone)]
 pub struct PolicySystem {
     db: Arc<Db>,
 }

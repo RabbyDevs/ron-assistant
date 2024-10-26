@@ -57,7 +57,7 @@ pub async fn publish(
     ctx: Context<'_>
 ) -> Result<(), Error> {
     let policy_system = &ctx.data().policy_system;
-    ctx.say(format!("Policy cached changes applying.")).await?;
+    ctx.say("Policy cached changes applying.".to_string()).await?;
     policy_system.update_policy(&ctx.serenity_context().clone()).await.unwrap();
     Ok(())
 }

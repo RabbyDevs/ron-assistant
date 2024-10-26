@@ -17,13 +17,19 @@ pub struct AttachmentStoreDB {
     db: Db,
 }
 
+impl Default for AttachmentStoreDB {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AttachmentStoreDB {
     pub fn get_instance() -> Arc<Mutex<Self>> {
         ATTACHMENT_STORE_DB.clone()
     }
 
     pub fn new() -> Self {
-        let db = sled::open("./attachment_logs").unwrap();
+        let db = sled::open("./dbs/attachment_logs").unwrap();
         AttachmentStoreDB { db }
     }
 

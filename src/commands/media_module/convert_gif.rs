@@ -13,7 +13,7 @@ pub async fn gif(
     #[description = "Quality Preset for the command."] quality_preset: Option<QualityPreset>
 ) -> Result<(), Error> {
     ctx.reply("Converting attachment into gif, this may take a while!").await.unwrap();
-    let quality_preset = if quality_preset.is_none() {QualityPreset::HighQuality} else {quality_preset.unwrap()};
+    let quality_preset = quality_preset.unwrap_or(QualityPreset::HighQuality);
     
     let content_type = match attachment.content_type {
         Some(ct) => ct,
@@ -47,9 +47,7 @@ pub async fn gif(
                 Ok::<_, Error>(())
             }.await;
 
-            if let Err(e) = std::fs::remove_file(&output_filename) {
-                eprintln!("Failed to remove output file: {}", e);
-            }
+            std::fs::remove_file(output_filename).unwrap();
 
             if let Err(e) = send_result {
                 ctx.say(format!("Failed to send the converted file: {}", e)).await?;
@@ -96,30 +94,24 @@ async fn convert_video(content_type: &str, input: String, quality_preset: Qualit
 async fn convert_image(content_type: &str, input: String, quality_preset: QualityPreset) -> Result<String, Error> {
     let output_filename = format!("./.tmp/output_{}.gif", Uuid::new_v4());
     
-    let result = if content_type != "image/png" {
+    if content_type != "image/png" {
         let png_output_filename = format!("./.tmp/output_{}.png", Uuid::new_v4());
         let output = image_to_png_converter(&input, &png_output_filename);
-        std::fs::remove_file(&input).ok();
+        std::fs::remove_file(&input).unwrap();
         
         if output.status.success() {
             let gif_output: Result<(), std::io::Error> = png_to_gif_converter(&png_output_filename, &output_filename, quality_preset);
-            std::fs::remove_file(&png_output_filename).ok();
+            std::fs::remove_file(&png_output_filename).unwrap();
             handle_command_output(gif_output, output_filename.clone())
         } else {
-            std::fs::remove_file(&png_output_filename).ok();
+            std::fs::remove_file(&png_output_filename).unwrap();
             Err(Error::from("Failed to convert image to PNG"))
         }
     } else {
         let output = png_to_gif_converter(&input, &output_filename, quality_preset);
-        std::fs::remove_file(&input).ok();
+        std::fs::remove_file(&input).unwrap();
         handle_command_output(output, output_filename.clone())
-    };
-
-    // if result.is_err() {
-    //     std::fs::remove_file(&output_filename).ok();
-    // }
-    
-    result
+    }
 }
 
 fn handle_command_output(output: Result<(), std::io::Error>, output_filename: String) -> Result<String, Error> {

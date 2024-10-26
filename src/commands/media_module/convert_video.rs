@@ -31,9 +31,9 @@ pub async fn convert_video(
     let futures = message_ids.into_iter().map(|message_id| {
         let channels = channels.clone();
         let http = Arc::clone(&http);
-        let ctx: poise::Context<'_, crate::Data, Box<dyn std::error::Error + Send + Sync>> = ctx.clone();
+        let ctx: poise::Context<'_, crate::Data, Box<dyn std::error::Error + Send + Sync>> = ctx;
         async move {
-            process_message(channels, http, ctx, MessageId::new(message_id)).await;
+            process_message(channels, &http, ctx, MessageId::new(message_id)).await;
         }
     });
 
@@ -45,7 +45,7 @@ pub async fn convert_video(
 
 async fn process_message(
     channels: Vec<serenity::GuildChannel>,
-    http: Arc<&serenity::Http>,
+    http: &serenity::Http,
     ctx: poise::Context<'_, crate::Data, Box<dyn std::error::Error + Send + Sync>>,
     message_id: MessageId,
 ) {
@@ -68,7 +68,6 @@ async fn process_message(
 
     let futures = message.attachments.iter().map(|attachment| {
         let message = message.clone();
-        let ctx = ctx.clone();
         let attachment = attachment.clone();
         async move {
             video_convert(message, ctx.serenity_context().clone(), ctx.data().reqwest_client.clone(), attachment).await;

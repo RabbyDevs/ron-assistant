@@ -1,7 +1,9 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use ::serenity::all::{CreateEmbed, CreateEmbedFooter, CreateMessage, RoleId};
+use ::serenity::all::{CreateMessage, RoleId};
 use serenity::User;
 use std::collections::HashMap;
+use crate::main_modules::helper;
+
 use super::{Context, Error, UserId, serenity, FromStr};
 
 fn split_string(s: String, chunk_size: usize) -> Vec<String> {
@@ -62,16 +64,13 @@ pub async fn discordinfo(
             None => "No nickname set.".to_string()
         };
 
-        let footer = CreateEmbedFooter::new("Made by RabbyDevs, with 🦀 and ❤️.").icon_url(ctx.framework().bot_id.to_user(ctx.http()).await?.avatar_url().unwrap());
-        let color = ctx.data().bot_color;
-        let mut first_embed = CreateEmbed::default()
+        let mut first_embed = helper::new_embed_from_template(ctx.data()).await
             .title("Extra User Information")
-            .field("Username", format!("{}",user.name), true)
-            .field("Global Name", format!("{}",global_name), true)
+            .field("Username", user.name.to_string(), true)
+            .field("Global Name", global_name.to_string(), true)
             .field("User Creation Date", format!("<t:{}:D>\n{}", created_at_timestamp, new_account_message), true)
-            .field("Avatar URL", format!("{}",avatar_url), true)
-            .field("Banner URL", format!("{}",banner_url), true)
-            .color(color.clone());
+            .field("Avatar URL", avatar_url.to_string(), true)
+            .field("Banner URL", banner_url.to_string(), true);
         let mut embeds = vec![];
 
         if let Some(guild_id) = ctx.guild_id() {
@@ -93,25 +92,6 @@ pub async fn discordinfo(
                     }
                 }
         
-                // let mut perms_string = String::new();
-                // let everyone_role_id = guild_id.everyone_role();
-                // let everyone_role_permissions = role_permissions.remove(&everyone_role_id).unwrap();
-                // for role in &member.roles {
-                //     if let Some(perms) = role_permissions.remove(role) {
-                //         if !perms.is_empty() {
-                //             perms_string.push_str(&format!("<@&{}>: {}\n", role, perms.join(", ")));
-                //         }
-                //     }
-                // }
-
-                // if !everyone_role_permissions.is_empty() {
-                //     perms_string.push_str(&format!("@everyone: {}\n", everyone_role_permissions.join(", ")));
-                // }
-        
-                // if perms_string.is_empty() {
-                //     perms_string = "No permissions found.".to_string();
-                // }
-        
                 let role_string = member.roles
                     .iter()
                     .map(|roleid| format!("<@&{}>", roleid))
@@ -121,27 +101,15 @@ pub async fn discordinfo(
                 let role_chunks = split_string(role_string, 1000);
                 let mut role_embeds = vec![];
                 for (i, chunk) in role_chunks.iter().enumerate() {
-                    let role_embed = CreateEmbed::default()
+                    let role_embed = helper::new_embed_from_template(ctx.data()).await
                         .title(format!("Guild Member Roles (Part {})", i + 1))
-                        .description(chunk)
-                        .color(color.clone());
+                        .description(chunk);
                     role_embeds.push(role_embed);
                 }
-
-                // let perms_chunks = split_string(perms_string, 1000);
-                // let mut perms_embeds = vec![];
-                // for (i, chunk) in perms_chunks.iter().enumerate() {
-                //     let perms_embed = CreateEmbed::default()
-                //         .title(format!("User Permissions (Part {})", i + 1))
-                //         .description(chunk)
-                //         .color(color.clone());
-                //     perms_embeds.push(perms_embed);
-                // }
-
+                
                 first_embed = first_embed.field("Member Nickname", nickname, true);
                 embeds.push(first_embed);
                 embeds.extend(role_embeds);
-                // embeds.extend(perms_embeds);
 
                 if embeds.len() > 10 {
                     ctx.channel_id().say(&ctx.http(), "Warning: Too many embeds to send in one message. Some information may be truncated.").await?;
@@ -150,8 +118,7 @@ pub async fn discordinfo(
             }
         } else {
             first_embed = first_embed
-                .field("Note", "This command was used outside of a guild context. Role and permission information is not available.", false)
-                .footer(footer.clone());
+                .field("Note", "This command was used outside of a guild context. Role and permission information is not available.", false);
             embeds.push(first_embed);
         }
 

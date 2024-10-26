@@ -3,16 +3,20 @@ use regex::Regex;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
 use serde_json::Value;
+use serenity::all::{CreateEmbed, CreateEmbedFooter};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use crate::Data;
+
 use super::{UserId, CONFIG};
+use std::fmt::Write;
 
 pub async fn discord_id_to_roblox_id(reqwest_client: &Client, discord_id: UserId) -> Result<String, String> {
     let quote_regex = Regex::new("/\"/gi").expect("regex err");
     let bloxlink_api_key: HeaderValue = CONFIG.main.bloxlink_api_key.parse::<HeaderValue>().expect("err");
 
-    let url = format!("https://api.blox.link/v4/public/discord-to-roblox/{}", discord_id.to_string());
+    let url = format!("https://api.blox.link/v4/public/discord-to-roblox/{}", discord_id);
     let response = reqwest_client.get(url)
         .header("Authorization", bloxlink_api_key)
         .send()
@@ -64,6 +68,52 @@ pub async fn duration_conversion(duration_string: String) -> Result<(u64, u64, S
         .expect("Time went backwards");
     let epoch_in_s = since_the_epoch.as_secs();
     Ok((epoch_in_s, epoch_in_s + unix_total, final_string))
+}
+
+pub fn format_duration(seconds: u64) -> String {
+    let mut date_units = [(31556952, "Year"),
+        (2629743, "Month"),
+        (604800, "Week"),
+        (86400, "Day"),
+        (3600, "Hour"),
+        (60, "Minute"),
+        (1, "Second")];
+
+    let mut remaining_seconds = seconds;
+    let mut parts = Vec::new();
+
+    if seconds == 0 {
+        return "0 Seconds".to_string();
+    }
+
+    for (unit_seconds, unit_name) in date_units.iter_mut() {
+        if remaining_seconds >= *unit_seconds {
+            let count = remaining_seconds / *unit_seconds;
+            remaining_seconds %= *unit_seconds;
+            
+            if count > 0 {
+                let unit_str = if count == 1 {
+                    unit_name.to_string()
+                } else {
+                    format!("{}s", unit_name)
+                };
+                parts.push(format!("{} {}", count, unit_str));
+            }
+        }
+    }
+
+    match parts.len() {
+        0 => String::new(),
+        1 => parts[0].clone(),
+        _ => {
+            let last = parts.pop().unwrap();
+            if parts.is_empty() {
+                last
+            } else {
+                format!("{} and {}", parts.join(", "), last)
+            }
+        }
+    }
 }
 
 use futures::stream::{self, StreamExt};
@@ -186,7 +236,10 @@ pub async fn badge_data(reqwest_client: &Client, roblox_id: String, badge_iterat
     let awarders_string = if awarders_vec.is_empty() {
         "No badges found, there are no top badge givers.".to_string()
     } else {
-        awarders_vec.iter().map(|(id, count)| format!("\n - {}: {}", id, count)).collect()
+        awarders_vec.iter().fold(String::new(), |mut acc, (id, count)| {
+            let _ = write!(acc, "\n - {}: {}", id, count);
+            acc
+        })
     };
 
     Ok((badge_count, win_rate, awarders_string))
@@ -221,19 +274,19 @@ pub async fn merge_types(reqwest_client: &Client, rbx_client: &roboat::Client, u
     let mut errors_vector: Vec<String> = Vec::new();
 
     for user in users {
-        if user.len() >= 17 && user.chars().all(|c| c.is_digit(10)) {
+        if user.len() >= 17 && user.chars().all(|c| c.is_ascii_digit()) {
             let discord_id = match UserId::from_str(user.as_str()) {Ok(id) => id, Err(err) => {
                 errors_vector.push(format!("Couldn't find turn discord id string into actual discord id for {}, details:\n{}", user, err));
                 continue
             }};
-            let roblox_id_str = match self::discord_id_to_roblox_id(&reqwest_client, discord_id).await {Ok(id) => id, Err(err) => {
+            let roblox_id_str = match self::discord_id_to_roblox_id(reqwest_client, discord_id).await {Ok(id) => id, Err(err) => {
                 errors_vector.push(format!("Couldn't find turn discord id into roblox id for {}, details:\n{}", user, err));
                 continue
             }};
             roblox_ids.push(roblox_id_str)
-        } else if user.len() < 17 && user.chars().all(|c| c.is_digit(10)) {
+        } else if user.len() < 17 && user.chars().all(|c| c.is_ascii_digit()) {
             roblox_ids.push(user)
-        } else if !user.chars().all(|c| c.is_digit(10)) {
+        } else if !user.chars().all(|c| c.is_ascii_digit()) {
             let user_search = match rbx_client.username_user_details(vec![user.clone()], false).await {Ok(id) => id, Err(err) => {
                 errors_vector.push(format!("Couldn't find user details for {}, details:\n{}", user, err));
                 continue
@@ -255,9 +308,13 @@ pub async fn get_roblox_avatar_bust(reqwest_client: &Client, user_id: String) ->
         .await
         .unwrap();
 
-    let parsed_json: Value = serde_json::from_str(&response.as_str()).unwrap();
-    parsed_json["data"].as_array().unwrap().get(0).unwrap()["imageUrl"]
+    let parsed_json: Value = serde_json::from_str(response.as_str()).unwrap();
+    parsed_json["data"].as_array().unwrap().first().unwrap()["imageUrl"]
         .as_str()
         .unwrap_or("")
         .to_string()
+}
+
+pub async fn new_embed_from_template(framework_data: &Data) -> CreateEmbed {
+    CreateEmbed::new().color(framework_data.bot_color).footer(CreateEmbedFooter::new("Made by RabbyDevs, with 🦀 and ❤️.").icon_url(framework_data.bot_avatar.clone()))
 }

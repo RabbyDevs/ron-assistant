@@ -133,7 +133,6 @@ impl PolicySystem {
         let mut all_headings = Vec::new();
     
         for (_, policy) in policies.iter() {
-            // Split content into sections based on headings
             let mut sections = Vec::new();
             let mut current_section = String::new();
             let mut lines = policy.content.lines().peekable();
@@ -146,25 +145,21 @@ impl PolicySystem {
                 current_section.push_str(line);
                 current_section.push('\n');
                 
-                // If this is the last line or next line starts a new section
                 if (lines.peek().is_none() || lines.peek().map_or(false, |next| next.starts_with('#'))) && !current_section.is_empty() {
                     sections.push(current_section.clone());
                     current_section.clear();
                 }
             }
     
-            // Send each section separately and collect their links
             for section in sections {
                 let messages = send_long_message(ctx, &policy_channel.id(), &format!("{}\n** **", section)).await;
-                let message_link = messages.first().unwrap().link(); // Use first message link for the section
+                let message_link = messages.first().unwrap().link();
                 
-                // Extract headings from this section with the correct message link
                 let section_headings = extract_headings(&section, &message_link);
                 all_headings.extend(section_headings);
             }
         }
     
-        // Sort headings by their numeric prefix
         all_headings.sort_by(|a, b| {
             let a_num = extract_number(&a.title);
             let b_num = extract_number(&b.title);
@@ -246,101 +241,88 @@ async fn send_long_message(ctx: &Context, channel_id: &ChannelId, content: &str)
 
 fn build_toc_hierarchy(headings: Vec<TocEntry>) -> Vec<TocEntry> {
     let mut result = Vec::new();
-    let mut stack: Vec<TocEntry> = Vec::new();
+    let mut current_level1: Option<TocEntry> = None;
     
     for heading in headings {
-        while !stack.is_empty() && stack.last().unwrap().level >= heading.level {
-            stack.pop();
-        }
-        
-        let new_entry = TocEntry {
-            level: heading.level,
-            title: heading.title.clone(),
-            link: heading.link.clone(),
-            children: Vec::new(),
-        };
-        
-        if let Some(parent) = stack.last_mut() {
-            parent.children.push(new_entry.clone());
-        } else {
-            result.push(new_entry.clone());
-        }
-        
-        if heading.level > 1 {
-            stack.push(new_entry);
-        }
-    }
-    
-    result
-}
+        if heading.level == 1 {
+            if let Some(prev_level1) = current_level1.take() {
+                result.push(prev_level1);
+            }
 
-fn format_toc(entries: &[TocEntry]) -> String {
-    fn format_entry(entry: &TocEntry, parent_number: &str, index: usize, output: &mut String) {
-        let indent = "  ".repeat(entry.level.saturating_sub(1));
-        
-        // Extract existing number from title if it exists
-        let title_number = extract_number(&entry.title);
-        
-        let entry_number = if entry.level == 1 {
-            // For level 1, use the number from the title
-            title_number
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| (index + 1).to_string())
-        } else {
-            // For level 2+, construct the hierarchical number
-            format!("{}.{}", parent_number, index + 1)
-        };
-
-        // Clean the title by removing the number prefix if it exists
-        let clean_title = entry.title
-            .split_whitespace()
-            .skip(if title_number.is_some() { 1 } else { 0 })
-            .collect::<Vec<_>>()
-            .join(" ");
-        
-        // Format the TOC entry
-        output.push_str(&format!("{}{} [{}]({})\n",
-            indent,
-            if entry.level == 1 { format!("{}.", entry_number) } else { entry_number.clone() },
-            clean_title,
-            entry.link
-        ));
-        
-        // Process children with current entry number as parent
-        for (i, child) in entry.children.iter().enumerate() {
-            format_entry(child, &entry_number, i, output);
-        }
-    }
-    
-    let mut output = String::new();
-    for (i, entry) in entries.iter().enumerate() {
-        format_entry(entry, "", i, &mut output);
-    }
-    output
-}
-
-// Modified extract_headings to use clean titles
-fn extract_headings(content: &str, message_link: &str) -> Vec<TocEntry> {
-    let mut headings = Vec::new();
-    
-    for line in content.lines() {
-        if line.starts_with('#') {
-            let level = line.chars().take_while(|&c| c == '#').count();
-            let title = line.trim_start_matches('#').trim().to_string();
-            
-            if !title.is_empty() {
-                headings.push(TocEntry {
-                    level,
-                    title,
-                    link: message_link.to_string(),
+            current_level1 = Some(TocEntry {
+                level: heading.level,
+                title: heading.title,
+                link: heading.link,
+                children: Vec::new(),
+            });
+        } else if heading.level == 2 {
+            if let Some(ref mut level1) = current_level1 {
+                level1.children.push(TocEntry {
+                    level: heading.level,
+                    title: heading.title,
+                    link: heading.link,
                     children: Vec::new(),
                 });
             }
         }
     }
     
+    if let Some(last_level1) = current_level1 {
+        result.push(last_level1);
+    }
+    
+    result
+}
+
+fn format_toc(entries: &[TocEntry]) -> String {
+    let mut output = String::new();
+    
+    for (l1_idx, entry) in entries.iter().enumerate() {
+        let l1_num = l1_idx + 1;
+
+        output.push_str(&format!("{} [{}]({})\n",
+            l1_num,
+            entry.title.trim(),
+            entry.link
+        ));
+
+        for (l2_idx, child) in entry.children.iter().enumerate() {
+            output.push_str(&format!("    {}.{} [{}]({})\n",
+                l1_num,
+                l2_idx + 1,
+                child.title.trim(),
+                child.link
+            ));
+        }
+    }
+    
+    output
+}
+
+fn extract_headings(content: &str, message_link: &str) -> Vec<TocEntry> {
+    let mut headings = Vec::new();
+    
+    for line in content.lines() {
+        if line.starts_with('#') {
+            let level = line.chars().take_while(|&c| c == '#').count();
+            if level <= 2 {  // Only process level 1 and 2 headings
+                let title = line.trim_start_matches('#').trim().to_string();
+                
+                if !title.is_empty() {
+                    headings.push(TocEntry {
+                        level,
+                        title,
+                        link: message_link.to_string(),
+                        children: Vec::new(),
+                    });
+                }
+            }
+        }
+    }
+    
     headings
 }
+
 // Helper function to extract numbers from section titles
 fn extract_number(title: &str) -> Option<u32> {
     title.split_whitespace()

@@ -317,7 +317,7 @@ fn format_toc(entries: &[TocEntry]) -> String {
         ));
 
         for (l2_idx, l2_entry) in entry.children.iter().enumerate() {
-            output.push_str(&format!("    {}.{} [{}]({})\n",
+            output.push_str(&format!("** **   {}.{} [{}]({})\n",
                 l1_num,
                 l2_idx + 1,
                 l2_entry.title.trim(),
@@ -325,7 +325,7 @@ fn format_toc(entries: &[TocEntry]) -> String {
             ));
 
             for (l3_idx, l3_entry) in l2_entry.children.iter().enumerate() {
-                output.push_str(&format!("        {}.{}.{} [{}]({})\n",
+                output.push_str(&format!("** **       {}.{}.{} [{}]({})\n",
                     l1_num,
                     l2_idx + 1,
                     l3_idx + 1,

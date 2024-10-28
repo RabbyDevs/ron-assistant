@@ -13,10 +13,20 @@ pub struct PolicyEntry {
     pub order: u64,
 }
 
+#[derive(Debug, Clone)]
+struct TocEntry {
+    level: usize,
+    title: String,
+    link: String,
+    children: Vec<TocEntry>,
+}
+
 #[derive(Clone)]
 pub struct PolicySystem {
     db: Arc<Db>,
 }
+
+
 
 impl PolicySystem {
     pub fn init(db_path: &str) -> sled::Result<Self> {
@@ -120,29 +130,26 @@ impl PolicySystem {
             tokio::time::sleep(Duration::from_millis(1000)).await;
         }
     
-        let mut message_links = Vec::new();
+        let mut all_headings = Vec::new();
 
         for (_, policy) in policies.iter() {
             let messages = send_long_message(ctx, &policy_channel.id(), &format!("{}\n** **", policy.content)).await;
-            let first_heading = extract_first_heading(&policy.content);
-            if let Some(heading) = first_heading {
-                message_links.push((heading, messages.last().unwrap().link()));
-            }
+            let message_link = messages.last().unwrap().link();
+            
+            let headings = extract_headings(&policy.content, &message_link);
+            all_headings.extend(headings);
         }
-    
-        message_links.sort_by(|(a, _), (b, _)| {
-            let a_num = extract_number(a);
-            let b_num = extract_number(b);
+
+        all_headings.sort_by(|a, b| {
+            let a_num = extract_number(&a.title);
+            let b_num = extract_number(&b.title);
             a_num.cmp(&b_num)
         });
+
+        let toc_tree = build_toc_hierarchy(all_headings);
+        let toc_content = format_toc(&toc_tree);
     
-        let mut toc_content = String::new();
-    
-        for (index, (heading, link)) in message_links.iter().enumerate() {
-            toc_content.push_str(&format!("{}. [{}]({})\n", index + 1, heading, link));
-        }
-    
-        send_long_message(ctx, &policy_channel.id(), &format!("# Table of Contents:\n{}", toc_content)).await;
+        send_long_message(ctx, &policy_channel.id(), &format!("# Table of Contents\n{}", toc_content)).await;
     
         fs::rename(current_file_path, previous_file_path)?;
     
@@ -160,9 +167,8 @@ impl PolicySystem {
 
 async fn send_code_blocks(ctx: &Context, channel_id: &ChannelId, prefix: &str, content: &str) -> Vec<Message> {
     let mut messages = Vec::new();
-    let max_content_length = 1990; // Leave room for code block markers
+    let max_content_length = 1990;
     
-    // Send the prefix as a separate message if it exists
     if !prefix.is_empty() {
         let message = channel_id.say(ctx, prefix).await.unwrap();
         messages.push(message);
@@ -171,13 +177,11 @@ async fn send_code_blocks(ctx: &Context, channel_id: &ChannelId, prefix: &str, c
     let mut current_block = String::new();
     
     for line in content.lines() {
-        if current_block.len() + line.len() + 8 > max_content_length { // 8 accounts for "```diff\n" and "```"
-            if !current_block.is_empty() {
-                let formatted_block = format!("```diff\n{}```", current_block);
-                let message = channel_id.say(ctx, formatted_block).await.unwrap();
-                messages.push(message);
-                current_block.clear();
-            }
+        if current_block.len() + line.len() + 8 > max_content_length && !current_block.is_empty() {
+            let formatted_block = format!("```diff\n{}```", current_block);
+            let message = channel_id.say(ctx, formatted_block).await.unwrap();
+            messages.push(message);
+            current_block.clear();
         }
         current_block.push_str(line);
         current_block.push('\n');
@@ -215,17 +219,101 @@ async fn send_long_message(ctx: &Context, channel_id: &ChannelId, content: &str)
     messages
 }
 
-fn extract_first_heading(content: &str) -> Option<String> {
-    content.lines()
-        .find(|line| line.starts_with('#'))
-        .map(|line| line.trim_start_matches('#').trim().to_string())
+fn extract_headings(content: &str, message_link: &str) -> Vec<TocEntry> {
+    let mut headings = Vec::new();
+    
+    for line in content.lines() {
+        if line.starts_with('#') {
+            let level = line.chars().take_while(|&c| c == '#').count();
+            let title = line.trim_start_matches('#').trim().to_string();
+            
+            headings.push(TocEntry {
+                level,
+                title,
+                link: message_link.to_string(),
+                children: Vec::new(),
+            });
+        }
+    }
+    
+    headings
 }
 
-fn extract_number(heading: &str) -> u32 {
-    heading.split_whitespace()
-        .next()
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(u32::MAX)
+fn build_toc_hierarchy(headings: Vec<TocEntry>) -> Vec<TocEntry> {
+    let mut result = Vec::new();
+    let mut stack: Vec<TocEntry> = Vec::new();
+    
+    for heading in headings {
+        while let Some(last) = stack.last() {
+            if last.level >= heading.level {
+                stack.pop();
+            } else {
+                break;
+            }
+        }
+        
+        let new_entry = TocEntry {
+            level: heading.level,
+            title: heading.title,
+            link: heading.link,
+            children: Vec::new(),
+        };
+        
+        if let Some(parent) = stack.last_mut() {
+            parent.children.push(new_entry.clone());
+            stack.push(new_entry);
+        } else {
+            result.push(new_entry.clone());
+            stack.push(new_entry);
+        }
+    }
+    
+    result
+}
+
+fn format_toc(entries: &[TocEntry]) -> String {
+    fn format_entry(entry: &TocEntry, index_prefix: &str, output: &mut String) {
+        let indent = "  ".repeat(entry.level - 1);
+        
+        let entry_number = if !index_prefix.is_empty() {
+            format!("{}.", index_prefix)
+        } else {
+            extract_number(&entry.title).map_or_else(
+                String::new,
+                |n| n.to_string() + "."
+            )
+        };
+        
+        output.push_str(&format!("{}{} [{}]({})\n", 
+            indent,
+            if entry_number.is_empty() { "•".to_string() } else { entry_number.clone() },
+            entry.title.trim(),
+            entry.link
+        ));
+        
+        for (i, child) in entry.children.iter().enumerate() {
+            let child_prefix = if entry_number.is_empty() {
+                format!("{}", i + 1)
+            } else {
+                format!("{}{}", entry_number.trim_end_matches('.'), i + 1)
+            };
+            format_entry(child, &child_prefix, output);
+        }
+    }
+    
+    let mut output = String::new();
+    for entry in entries.iter() { 
+        format_entry(entry, "", &mut output);
+    }
+    output
+}
+
+// Helper function to extract numbers from section titles
+fn extract_number(title: &str) -> Option<u32> {
+    title.split_whitespace()
+        .next()?
+        .parse::<u32>()
+        .ok()
 }
 
 fn diff_policies(previous: &str, current: &str) -> String {

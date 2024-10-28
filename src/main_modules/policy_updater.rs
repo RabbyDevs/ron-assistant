@@ -224,7 +224,6 @@ fn build_toc_hierarchy(headings: Vec<TocEntry>) -> Vec<TocEntry> {
     let mut stack: Vec<TocEntry> = Vec::new();
     
     for heading in headings {
-        // Pop elements from stack until we find a parent with lower level
         while !stack.is_empty() && stack.last().unwrap().level >= heading.level {
             stack.pop();
         }
@@ -242,7 +241,7 @@ fn build_toc_hierarchy(headings: Vec<TocEntry>) -> Vec<TocEntry> {
             result.push(new_entry.clone());
         }
         
-        if heading.level > 1 {  // Only push non-level-1 headings to stack for nesting
+        if heading.level > 1 {
             stack.push(new_entry);
         }
     }

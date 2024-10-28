@@ -26,8 +26,6 @@ pub struct PolicySystem {
     db: Arc<Db>,
 }
 
-
-
 impl PolicySystem {
     pub fn init(db_path: &str) -> sled::Result<Self> {
         let db = Arc::new(sled::open(db_path)?);
@@ -242,32 +240,64 @@ async fn send_long_message(ctx: &Context, channel_id: &ChannelId, content: &str)
 fn build_toc_hierarchy(headings: Vec<TocEntry>) -> Vec<TocEntry> {
     let mut result = Vec::new();
     let mut current_level1: Option<TocEntry> = None;
+    let mut current_level2: Option<TocEntry> = None;
     
     for heading in headings {
-        if heading.level == 1 {
-            if let Some(prev_level1) = current_level1.take() {
-                result.push(prev_level1);
-            }
+        match heading.level {
+            1 => {
+                // When we encounter a new level 1 heading
+                if let Some(mut prev_level1) = current_level1.take() {
+                    // If there's a pending level 2, add it to the previous level 1
+                    // before pushing level 1 to results
+                    if let Some(prev_level2) = current_level2.take() {
+                        prev_level1.children.push(prev_level2);
+                    }
+                    result.push(prev_level1);
+                }
 
-            current_level1 = Some(TocEntry {
-                level: heading.level,
-                title: heading.title,
-                link: heading.link,
-                children: Vec::new(),
-            });
-        } else if heading.level == 2 {
-            if let Some(ref mut level1) = current_level1 {
-                level1.children.push(TocEntry {
+                current_level1 = Some(TocEntry {
                     level: heading.level,
                     title: heading.title,
                     link: heading.link,
                     children: Vec::new(),
                 });
             }
+            2 => {
+                if let Some(ref mut level1) = current_level1 {
+                    // When we encounter a new level 2 heading, add the previous one
+                    // to the current level 1's children if it exists
+                    if let Some(prev_level2) = current_level2.take() {
+                        level1.children.push(prev_level2);
+                    }
+
+                    current_level2 = Some(TocEntry {
+                        level: heading.level,
+                        title: heading.title,
+                        link: heading.link,
+                        children: Vec::new(),
+                    });
+                }
+            }
+            3 => {
+                if let Some(ref mut level2) = current_level2 {
+                    level2.children.push(TocEntry {
+                        level: heading.level,
+                        title: heading.title,
+                        link: heading.link,
+                        children: Vec::new(),
+                    });
+                }
+            }
+            _ => {}
         }
     }
     
-    if let Some(last_level1) = current_level1 {
+    // Handle final entries
+    if let Some(mut last_level1) = current_level1 {
+        // Don't forget to add the final level 2 if it exists
+        if let Some(last_level2) = current_level2 {
+            last_level1.children.push(last_level2);
+        }
         result.push(last_level1);
     }
     
@@ -286,13 +316,23 @@ fn format_toc(entries: &[TocEntry]) -> String {
             entry.link
         ));
 
-        for (l2_idx, child) in entry.children.iter().enumerate() {
+        for (l2_idx, l2_entry) in entry.children.iter().enumerate() {
             output.push_str(&format!("    {}.{} [{}]({})\n",
                 l1_num,
                 l2_idx + 1,
-                child.title.trim(),
-                child.link
+                l2_entry.title.trim(),
+                l2_entry.link
             ));
+
+            for (l3_idx, l3_entry) in l2_entry.children.iter().enumerate() {
+                output.push_str(&format!("        {}.{}.{} [{}]({})\n",
+                    l1_num,
+                    l2_idx + 1,
+                    l3_idx + 1,
+                    l3_entry.title.trim(),
+                    l3_entry.link
+                ));
+            }
         }
     }
     
@@ -305,7 +345,7 @@ fn extract_headings(content: &str, message_link: &str) -> Vec<TocEntry> {
     for line in content.lines() {
         if line.starts_with('#') {
             let level = line.chars().take_while(|&c| c == '#').count();
-            if level <= 2 {  // Only process level 1 and 2 headings
+            if level <= 3 {
                 let title = line.trim_start_matches('#').trim().to_string();
                 
                 if !title.is_empty() {
@@ -323,7 +363,6 @@ fn extract_headings(content: &str, message_link: &str) -> Vec<TocEntry> {
     headings
 }
 
-// Helper function to extract numbers from section titles
 fn extract_number(title: &str) -> Option<u32> {
     title.split_whitespace()
         .next()?

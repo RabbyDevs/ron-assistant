@@ -131,21 +131,46 @@ impl PolicySystem {
         }
     
         let mut all_headings = Vec::new();
-
+    
         for (_, policy) in policies.iter() {
-            let messages = send_long_message(ctx, &policy_channel.id(), &format!("{}\n** **", policy.content)).await;
-            let message_link = messages.last().unwrap().link();
+            // Split content into sections based on headings
+            let mut sections = Vec::new();
+            let mut current_section = String::new();
+            let mut lines = policy.content.lines().peekable();
             
-            let headings = extract_headings(&policy.content, &message_link);
-            all_headings.extend(headings);
+            while let Some(line) = lines.next() {
+                if line.starts_with('#') && !current_section.is_empty() {
+                    sections.push(current_section.clone());
+                    current_section.clear();
+                }
+                current_section.push_str(line);
+                current_section.push('\n');
+                
+                // If this is the last line or next line starts a new section
+                if (lines.peek().is_none() || lines.peek().map_or(false, |next| next.starts_with('#'))) && !current_section.is_empty() {
+                    sections.push(current_section.clone());
+                    current_section.clear();
+                }
+            }
+    
+            // Send each section separately and collect their links
+            for section in sections {
+                let messages = send_long_message(ctx, &policy_channel.id(), &format!("{}\n** **", section)).await;
+                let message_link = messages.first().unwrap().link(); // Use first message link for the section
+                
+                // Extract headings from this section with the correct message link
+                let section_headings = extract_headings(&section, &message_link);
+                all_headings.extend(section_headings);
+            }
         }
-
+    
+        // Sort headings by their numeric prefix
         all_headings.sort_by(|a, b| {
             let a_num = extract_number(&a.title);
             let b_num = extract_number(&b.title);
             a_num.cmp(&b_num)
         });
-
+    
         let toc_tree = build_toc_hierarchy(all_headings);
         let toc_content = format_toc(&toc_tree);
     

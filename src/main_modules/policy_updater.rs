@@ -95,7 +95,7 @@ impl PolicySystem {
                 let changes_channel = ctx.http.get_channel(changes_channel_id.into()).await.unwrap();
     
                 let diff = diff_policies(&previous_content, &file_contents);
-                send_long_message(ctx, &changes_channel.id(), &format!("Policy updates detected:\n```diff\n{}\n```", diff)).await;
+                send_code_blocks(ctx, &changes_channel.id(), "Policy updates detected:", &diff).await;
             }
         }
     
@@ -117,7 +117,7 @@ impl PolicySystem {
         while !messages_to_delete.is_empty() {
             let to_delete = messages_to_delete.split_off(messages_to_delete.len().saturating_sub(100));
             policy_actual_id.delete_messages(ctx, to_delete).await.unwrap();
-            tokio::time::sleep(Duration::from_millis(1000)).await; // Avoid rate limits
+            tokio::time::sleep(Duration::from_millis(1000)).await;
         }
     
         let mut message_links = Vec::new();
@@ -158,21 +158,38 @@ impl PolicySystem {
     }
 }
 
-fn diff_policies(previous: &str, current: &str) -> String {
-    use similar::{TextDiff, ChangeTag};
-
-    let mut changes = String::new();
-    let diff = TextDiff::from_lines(previous, current);
-
-    for change in diff.iter_all_changes() {
-        match change.tag() {
-            ChangeTag::Delete => changes.push_str(&format!("- {}", change)),
-            ChangeTag::Insert => changes.push_str(&format!("+ {}", change)),
-            _ => {}
-        }
+async fn send_code_blocks(ctx: &Context, channel_id: &ChannelId, prefix: &str, content: &str) -> Vec<Message> {
+    let mut messages = Vec::new();
+    let max_content_length = 1990; // Leave room for code block markers
+    
+    // Send the prefix as a separate message if it exists
+    if !prefix.is_empty() {
+        let message = channel_id.say(ctx, prefix).await.unwrap();
+        messages.push(message);
     }
 
-    changes
+    let mut current_block = String::new();
+    
+    for line in content.lines() {
+        if current_block.len() + line.len() + 8 > max_content_length { // 8 accounts for "```diff\n" and "```"
+            if !current_block.is_empty() {
+                let formatted_block = format!("```diff\n{}```", current_block);
+                let message = channel_id.say(ctx, formatted_block).await.unwrap();
+                messages.push(message);
+                current_block.clear();
+            }
+        }
+        current_block.push_str(line);
+        current_block.push('\n');
+    }
+
+    if !current_block.is_empty() {
+        let formatted_block = format!("```diff\n{}```", current_block);
+        let message = channel_id.say(ctx, formatted_block).await.unwrap();
+        messages.push(message);
+    }
+
+    messages
 }
 
 async fn send_long_message(ctx: &Context, channel_id: &ChannelId, content: &str) -> Vec<Message> {
@@ -209,4 +226,21 @@ fn extract_number(heading: &str) -> u32 {
         .next()
         .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(u32::MAX)
+}
+
+fn diff_policies(previous: &str, current: &str) -> String {
+    use similar::{TextDiff, ChangeTag};
+
+    let mut changes = String::new();
+    let diff = TextDiff::from_lines(previous, current);
+
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Delete => changes.push_str(&format!("- {}", change)),
+            ChangeTag::Insert => changes.push_str(&format!("+ {}", change)),
+            _ => {}
+        }
+    }
+
+    changes
 }

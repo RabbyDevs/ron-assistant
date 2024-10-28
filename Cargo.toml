@@ -2,7 +2,7 @@ cargo-features = ["edition2024"]
 
 [package]
 name = "ron-assista-bot"
-version = "3.1.0"
+version = "3.1.1"
 edition = "2024"
 
 [dependencies]
@@ -15,9 +15,9 @@ once_cell = "1.20.2"
 poise = "0.6.1"
 rayon = "1.10.0"
 regex = "1.11.1"
-reqwest = "0.12.8"
+reqwest = "0.12.9"
 roboat = "0.35.0"
-serde = "1.0.213"
+serde = "1.0.214"
 serde_json = "1.0.132"
 serenity = { version = "0.12.2", features = ["rustls_backend", "chrono", "cache", "tokio_task_builder", "simd_json", "temp_cache"], default-features = false }
 similar = "2.6.0"

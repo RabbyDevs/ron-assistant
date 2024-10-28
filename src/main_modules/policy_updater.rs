@@ -278,28 +278,35 @@ fn format_toc(entries: &[TocEntry]) -> String {
     fn format_entry(entry: &TocEntry, parent_number: &str, index: usize, output: &mut String) {
         let indent = "  ".repeat(entry.level.saturating_sub(1));
         
+        // Extract existing number from title if it exists
+        let title_number = extract_number(&entry.title);
+        
         let entry_number = if entry.level == 1 {
-            // For level 1, use the number from the title if it exists
-            extract_number(&entry.title)
+            // For level 1, use the number from the title
+            title_number
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| (index + 1).to_string())
         } else {
-            // For other levels, use parent number + current index
-            if parent_number.is_empty() {
-                (index + 1).to_string()
-            } else {
-                format!("{}.{}", parent_number, index + 1)
-            }
+            // For level 2+, construct the hierarchical number
+            format!("{}.{}", parent_number, index + 1)
         };
+
+        // Clean the title by removing the number prefix if it exists
+        let clean_title = entry.title
+            .split_whitespace()
+            .skip(if title_number.is_some() { 1 } else { 0 })
+            .collect::<Vec<_>>()
+            .join(" ");
         
+        // Format the TOC entry
         output.push_str(&format!("{}{} [{}]({})\n",
             indent,
-            entry_number,
-            entry.title.trim().replace(&format!("{}.", entry_number), "").trim(),
+            if entry.level == 1 { format!("{}.", entry_number) } else { entry_number.clone() },
+            clean_title,
             entry.link
         ));
         
-        // Format children with current entry number as parent
+        // Process children with current entry number as parent
         for (i, child) in entry.children.iter().enumerate() {
             format_entry(child, &entry_number, i, output);
         }
@@ -312,6 +319,7 @@ fn format_toc(entries: &[TocEntry]) -> String {
     output
 }
 
+// Modified extract_headings to use clean titles
 fn extract_headings(content: &str, message_link: &str) -> Vec<TocEntry> {
     let mut headings = Vec::new();
     
@@ -320,7 +328,6 @@ fn extract_headings(content: &str, message_link: &str) -> Vec<TocEntry> {
             let level = line.chars().take_while(|&c| c == '#').count();
             let title = line.trim_start_matches('#').trim().to_string();
             
-            // Skip empty headings
             if !title.is_empty() {
                 headings.push(TocEntry {
                     level,
@@ -334,7 +341,6 @@ fn extract_headings(content: &str, message_link: &str) -> Vec<TocEntry> {
     
     headings
 }
-
 // Helper function to extract numbers from section titles
 fn extract_number(title: &str) -> Option<u32> {
     title.split_whitespace()

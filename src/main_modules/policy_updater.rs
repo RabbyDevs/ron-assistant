@@ -304,7 +304,7 @@ fn format_toc(entries: &[TocEntry]) -> String {
     for (l1_idx, entry) in entries.iter().enumerate() {
         let l1_num = l1_idx + 1;
 
-        output.push_str(&format!("{} [{}]({})\n",
+        output.push_str(&format!("{}. [{}]({})\n",
             l1_num,
             entry.title.trim(),
             entry.link

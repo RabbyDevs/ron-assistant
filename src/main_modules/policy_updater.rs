@@ -158,12 +158,6 @@ impl PolicySystem {
             }
         }
     
-        all_headings.sort_by(|a, b| {
-            let a_num = extract_number(&a.title);
-            let b_num = extract_number(&b.title);
-            a_num.cmp(&b_num)
-        });
-    
         let toc_tree = build_toc_hierarchy(all_headings);
         let toc_content = format_toc(&toc_tree);
     
@@ -361,13 +355,6 @@ fn extract_headings(content: &str, message_link: &str) -> Vec<TocEntry> {
     }
     
     headings
-}
-
-fn extract_number(title: &str) -> Option<u32> {
-    title.split_whitespace()
-        .next()?
-        .parse::<u32>()
-        .ok()
 }
 
 fn diff_policies(previous: &str, current: &str) -> String {

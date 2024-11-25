@@ -224,7 +224,7 @@ fn apply_video_mask(
 
     let frame_paths: Vec<_> = fs::read_dir(temp_dir)?
        .filter_map(|entry| entry.ok())
-       .filter(|entry| entry.file_type().ok().map_or(false, |ft| ft.is_file()))
+       .filter(|entry| entry.file_type().ok().is_some_and(|ft| ft.is_file()))
        .map(|entry| entry.path())
        .filter(|path| path.file_name().unwrap().to_str().unwrap().starts_with("frame_"))
        .collect();

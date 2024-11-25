@@ -143,7 +143,7 @@ impl PolicySystem {
                 current_section.push_str(line);
                 current_section.push('\n');
                 
-                if (lines.peek().is_none() || lines.peek().map_or(false, |next| next.starts_with('#'))) && !current_section.is_empty() {
+                if (lines.peek().is_none() || lines.peek().is_some_and(|next| next.starts_with('#'))) && !current_section.is_empty() {
                     sections.push(current_section.clone());
                     current_section.clear();
                 }

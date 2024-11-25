@@ -61,7 +61,8 @@ pub async fn false_infraction(
     #[description = "Type of infraction."] #[rename = "type"] infraction_type: FalseInfTypes,
     #[description = "Moderator users (space-separated IDs)"] mod_users: String,
     #[description = "Affected users (space-separated IDs)"] affected_users: String,
-    #[description = "Reason for invalidation."] reason: String,
+    #[description = "Reason for infraction, why were the affected user(s) affected?"] reason1: String,
+    #[description = "Reason for invalidation."] reason2: String,
 ) -> Result<(), Error> {
     ctx.reply("Making log(s), please standby!").await.unwrap();
 
@@ -91,7 +92,8 @@ pub async fn false_infraction(
                 }
                 response.push_str(result.0.as_str());
             }
-            response.push_str(format!("\n[{}]", reason).as_str());
+            response.push_str(format!("\n[{}]", reason1).as_str());
+            response.push_str(format!("\n[{}]", reason2).as_str());
             ctx.say(response).await?;
         } else {
             let mut response = format!("[{}]\n[{}:{}]", infraction_type.name(), mod_id.to_user(&ctx.http()).await.unwrap().name, mod_id);
@@ -101,7 +103,8 @@ pub async fn false_infraction(
                 ctx.say(err).await.unwrap();
             }
             response.push_str(result.0.as_str());
-            response.push_str(format!("\n[{}]", reason).as_str());
+            response.push_str(format!("\n[{}]", reason1).as_str());
+            response.push_str(format!("\n[{}]", reason2).as_str());
             ctx.say(response).await?;
             if affected_ids.get(affected_iter + 1).is_some() {affected_ids.remove(affected_iter); affected_iter += 1};
         }

@@ -64,7 +64,7 @@ pub async fn speechbubble(
         return Err(format!("Overlay file not found: {}", overlay_path).into());
     }
 
-    let output_path = match apply_mask(&input_path, &overlay_path, flip.unwrap_or(false), height_float.unwrap_or(0.2), transparent.unwrap_or(true), no_force_gif.unwrap_or(false)) {
+    let output_path = match apply_mask(input_path.clone(), &overlay_path, flip.unwrap_or(false), height_float.unwrap_or(0.2), transparent.unwrap_or(true), no_force_gif.unwrap_or(false)) {
         Ok(str) => {
             str
         },

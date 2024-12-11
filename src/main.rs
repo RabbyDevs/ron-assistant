@@ -378,10 +378,53 @@ async fn event_handler(
     Ok(())
 }
 
+use std::fs;
+use std::path::Path;
+use std::time::{Duration, SystemTime};
+use tokio::time::sleep;
+
+async fn remove_old_files() {
+    let tmp_dir = Path::new("./.tmp");
+    let now = SystemTime::now();
+    let threshold = Duration::new(60, 0);
+
+    if let Ok(entries) = fs::read_dir(tmp_dir) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if !path.is_file() {continue};
+            match fs::metadata(&path) {
+                Ok(metadata) => {
+                    if let Ok(modified_time) = metadata.modified() {
+                        if let Ok(age) = now.duration_since(modified_time) {
+                            if age >= threshold {
+                                println!("Deleting file: {:?}", path);
+                                if let Err(err) = fs::remove_file(&path) {
+                                    eprintln!("Failed to delete {:?}: {}", path, err);
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(err) => eprintln!("Failed to get metadata for {:?}: {}", path, err),
+            }
+        }
+    } else {
+        eprintln!("Failed to read .tmp directory");
+    }
+}
+
+async fn periodic_cleanup() {
+    loop {
+        remove_old_files().await;
+        sleep(Duration::from_secs(1)).await;
+    }
+}
+
 #[tokio::main]
 async fn main() {
     deleted_attachments::start_attachment_db();
     std::fs::create_dir_all("./.tmp").unwrap();
+    tokio::spawn(periodic_cleanup());
     let discord_api_key = &CONFIG.main.discord_api_key;
     let intents = GatewayIntents::GUILDS
         | GatewayIntents::GUILD_PRESENCES

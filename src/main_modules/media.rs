@@ -1,77 +1,86 @@
 use reqwest::Client;
 use serenity::all::{Attachment, EditMessage, Message};
 use uuid::Uuid;
-use std::io::Write;
+use std::io::{BufReader, Write};
 use std::process::{Command, Output};
 use std::sync::Arc;
-use image::{GenericImageView, ImageBuffer, Rgba, DynamicImage};
+use image::{DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Rgba};
 use std::path::{Path, PathBuf};
-use std::fs;
+use std::fs::{self, File};
 use rayon::prelude::*;
 use tempfile::tempdir;
 
 pub fn apply_mask(
-    input_path: &str,
+    input_path: String,
     overlay_path: &str,
     flip_overlay: bool,
     height_float: f32,
     transparent: bool,
     no_force_gif: bool
 ) -> Result<String, String> {
-    let input_extension = Path::new(input_path).extension().and_then(|s| s.to_str()).unwrap_or("");
+    let input_extension = Path::new(&input_path).extension().and_then(|s| s.to_str()).unwrap_or("");
     
     let temp_dir_path = Path::new(".tmp");
     
     fs::create_dir_all(temp_dir_path).unwrap();
 
-    let conversion_result = match input_extension.to_lowercase().as_str() {
+    let input_path = match input_extension.to_lowercase().as_str() {
         "jpg" | "jpeg" | "bmp" | "tiff" | "webp" | "ico" | "heic" | "heif" | 
         "raw" | "cr2" | "nef" | "arw" | "dng" | "psd" => {
-            image_to_png_converter(input_path, input_path);
-            Ok(())
+            image_to_png_converter(&input_path, &input_path);
+            // Move the input file after conversion
+            let new_input_path = format!("./.tmp/{}.png", Uuid::new_v4());
+            fs::rename(input_path, &new_input_path).unwrap();
+            Ok(new_input_path)
         },
         
         "mov" | "avi" | "wmv" | "flv" | "mkv" | "webm" | "m4v" | "3gp" | "mpeg" | 
         "mpg" | "divx" | "vob" | "mts" | "m2ts" | "ts" => {
-            video_format_changer(input_path, input_path);
-            Ok(())
+            video_format_changer(&input_path, &input_path);
+            // Move the input file after processing
+            let new_input_path = format!("./.tmp/{}.mp4", Uuid::new_v4());
+            fs::rename(input_path, &new_input_path).unwrap();
+            Ok(new_input_path)
         },
         
-        "png" | "mp4" | "gif" => Ok(()),
+        "png" | "mp4" | "gif" => Ok(input_path),
         
         _ => {
             println!("Skipping unsupported format: {}", input_extension);
-            Err(())
+            Err("Unsupported format.".to_string())
         },
     };
 
     let file_name = Uuid::new_v4();
+    let binding = input_path.clone().unwrap();
+    let input_extension = Path::new(&binding).extension().and_then(|s| s.to_str()).unwrap_or("");
 
-    if conversion_result.is_err() {
-        Err("Uh oh, that's a bad file format.".to_string())
+    if input_path.is_err() {
+        Err("I couldn't get the file format here.".to_string())
     } else {
+        let input_path = input_path.unwrap();
         match input_extension.to_lowercase().as_str() {
             "png" => {
-                let mut output_path = format!(".tmp/{}.png", file_name);
-                apply_image_mask(input_path, overlay_path, output_path.as_str(), flip_overlay, height_float, transparent).unwrap();
+                let mut output_path = format!("./.tmp/{}.png", file_name);
+                apply_image_mask(&input_path, overlay_path, output_path.as_str(), flip_overlay, height_float, transparent).unwrap();
     
                 if !no_force_gif {
-                    output_path = format!(".tmp/{}.gif", file_name);
-                    png_to_gif_converter(format!(".tmp/{}.png", file_name).as_str(), output_path.as_str(), QualityPreset::HighQuality).unwrap();
-                    fs::remove_file(format!(".tmp/{}.png", file_name)).unwrap();
+                    output_path = format!("./.tmp/{}.gif", file_name);
+                    png_to_gif_converter(format!("./.tmp/{}.png", file_name).as_str(), output_path.as_str(), QualityPreset::HighQuality).unwrap();
+                    fs::remove_file(format!("./.tmp/{}.png", file_name)).unwrap();
                 }
     
-                Ok(output_path.to_string())
+                Ok(output_path)
             },
             "gif" => {
-                let output_path = format!(".tmp/{}.gif", file_name);
-                apply_gif_mask(input_path, overlay_path, output_path.as_str(), flip_overlay, height_float, transparent).unwrap();
+                let output_path = format!("./.tmp/{}.gif", file_name);
+                apply_gif_mask(&input_path, overlay_path, output_path.as_str(), flip_overlay, height_float, transparent).unwrap();
     
                 Ok(output_path.to_string())
             },
             "mp4" => {
-                let output_path = format!(".tmp/{}.mp4", file_name);
-                apply_video_mask(temp_dir_path, input_path, overlay_path, output_path.as_str(), flip_overlay, height_float).unwrap();
+                let output_path = format!("./.tmp/{}.mp4", file_name);
+                apply_video_mask(temp_dir_path, &input_path, overlay_path, output_path.as_str(), flip_overlay, height_float).unwrap();
     
                 Ok(output_path.to_string())
             },
@@ -82,6 +91,7 @@ pub fn apply_mask(
         }
     }
 }
+
 
 fn apply_gif_mask(
     input_path: &str,
@@ -141,6 +151,26 @@ fn apply_gif_mask(
     Ok(())
 }
 
+fn convert_to_standard_png(input_path: &str, output_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    Command::new("ffmpeg")
+        .arg("-i")
+        .arg(input_path)
+        .arg("-c:v")
+        .arg("png")
+        .arg("-pix_fmt")
+        .arg("rgba")
+        .arg(output_path)
+        .output()?;
+    Ok(())
+}
+
+fn open_image(path: &str) -> Result<DynamicImage, Box<dyn std::error::Error>> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let img = image::load(reader, ImageFormat::Png)?;
+    Ok(img)
+}
+
 fn apply_image_mask(
     input_path: &str,
     overlay_path: &str,
@@ -149,8 +179,11 @@ fn apply_image_mask(
     height_float: f32,
     transparent: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let input_image = image::open(input_path)?;
-    let mut overlay_image = image::open(overlay_path)?;
+    let temp_input_path = format!("./.tmp/{}.png", Uuid::new_v4());
+    convert_to_standard_png(input_path, &temp_input_path)?;
+
+    let input_image = open_image(&temp_input_path)?;
+    let mut overlay_image = open_image(overlay_path)?;
     let (input_width, input_height) = input_image.dimensions();
     let mask_height = (input_height as f32 * height_float) as u32;
 
@@ -159,7 +192,7 @@ fn apply_image_mask(
     }
 
     let resized_overlay = resize_overlay(&overlay_image, input_width, mask_height);
-    let mut output_image = ImageBuffer::new(input_width, input_height);
+    let mut output_image = image::ImageBuffer::new(input_width, input_height);
 
     for (x, y, pixel) in output_image.enumerate_pixels_mut() {
         let input_pixel = input_image.get_pixel(x, y);
@@ -179,6 +212,7 @@ fn apply_image_mask(
     }
 
     output_image.save(output_path)?;
+    fs::remove_file(&temp_input_path)?;
     Ok(())
 }
 
@@ -316,18 +350,17 @@ pub async fn video_convert(new_message: Message, ctx: serenity::prelude::Context
     std::fs::remove_file(&output_filename).unwrap();
 }
 
-pub fn image_to_png_converter(input_filename: &str, output_filename: &str) -> Output {
+pub fn image_to_png_converter(input_filename: &str, output_filename: &str) -> std::process::Output {
     let output = Command::new("ffmpeg")
         .args([
             "-i", input_filename,
-            "-format", "png",
-            "-lossless", "1",
+            "-f", "png",
             "-fs", "100M",
             output_filename
         ])
         .output()
         .expect("Failed to execute FFmpeg command.");
-    
+
     output
 }
 

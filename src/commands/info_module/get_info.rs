@@ -28,7 +28,7 @@ pub async fn getinfo(
         return Ok(());
     }
 
-    // Check if the user issuing the command has the specific IDs
+    //  Check if the user issuing the command has the specific IDs
     let allowed_user_ids = ["405837689024151553".to_string(),
         "1001041188079542283".to_string()];
 

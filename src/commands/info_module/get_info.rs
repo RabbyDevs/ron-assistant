@@ -46,15 +46,25 @@ pub async fn getinfo(
         if allowed_user_ids.contains(&ctx.author().id.to_string()) {
             // Only send user ID, username, and creation date
             let created_at_timestamp = created_at.timestamp();
+            let account_age = SystemTime::now().duration_since(UNIX_EPOCH)? - Duration::from_secs(created_at_timestamp as u64);
+            let new_account_message = if account_age < Duration::from_secs(60 * 24 * 60 * 60) {
+                ", **Account is new, below 60 days old.**"
+            } else {
+                ""
+            };
             let embed = helper::new_embed_from_template(ctx.data()).await
                 .title(format!("User Info - {}", user_details.display_name))
                 .color(ctx.data().bot_color)
                 .field("Username", user_details.username.to_string(), true)
                 .field("User ID", format!("{}", user_details.id), true)
-                .field("Account Creation", format!("<t:{}:D>", created_at_timestamp), false)
+                .field("Account Creation", format!("<t:{}:D>{}", created_at_timestamp, new_account_message), false)
                 .thumbnail(avatar_image.as_str().to_string());
             ctx.channel_id().send_message(&ctx.http(), CreateMessage::new().add_embed(embed)).await?;
         } else {
+            ctx.channel_id().say(&ctx.http(), "### Username").await?;
+            ctx.channel_id().say(&ctx.http(), user_details.username.to_string()).await?;
+            ctx.channel_id().say(&ctx.http(), "### User ID").await?;
+            ctx.channel_id().say(&ctx.http(), format!("{}", user_details.id)).await?;
             // Normal behavior: Send full info with badge count, etc.
             let mut embed = helper::new_embed_from_template(ctx.data()).await
                 .title(format!("Extra Information - {}", user_details.display_name))

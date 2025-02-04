@@ -342,7 +342,6 @@ pub fn extract_emojis(message_content: &str) -> (Vec<String>, Vec<(String, u64)>
         .filter(|&g| emojis::get(g).is_some())
         .map(|g| g.to_string()) 
         .collect();
-    println!("{:#?}{:#?}{}", unicode_emojis, custom_emojis, message_content);
 
     (unicode_emojis, custom_emojis)
 }

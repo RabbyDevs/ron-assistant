@@ -10,19 +10,17 @@ pub async fn gamenight_helper(ctx: Context<'_>) -> Result<(), Error> {
     let channel_id = ctx.channel_id();
     
     let last_10_messages = channel_id
-        .messages(ctx.http(), GetMessages::new().limit(10))
+        .messages(ctx.http(), GetMessages::new().limit(5))
         .await
         .map_err(Error::from)?;
 
-    for message in last_10_messages.iter().rev() {
+    for message in last_10_messages.iter() {
         let (unicode_emojis, custom_emojis) = helper::extract_emojis(&message.content);
         
         if unicode_emojis.is_empty() && custom_emojis.is_empty() {
-            println!("continuing");
             continue;
         }
 
-        // Handle unicode emojis
         for emoji in unicode_emojis {
             if let Ok(reaction_type) = ReactionType::from_str(&emoji) {
                 if let Err(e) = message.react(ctx.http(), reaction_type).await {
@@ -31,7 +29,6 @@ pub async fn gamenight_helper(ctx: Context<'_>) -> Result<(), Error> {
             }
         }
 
-        // Handle custom emojis
         for (_, emoji_id) in custom_emojis {
             let reaction_type = ReactionType::Custom {
                 animated: false,

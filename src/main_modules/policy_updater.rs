@@ -124,7 +124,9 @@ impl PolicySystem {
                         
         while !messages_to_delete.is_empty() {
             let to_delete = messages_to_delete.split_off(messages_to_delete.len().saturating_sub(100));
-            policy_actual_id.delete_messages(ctx, to_delete).await.unwrap();
+            for msg_id in to_delete {
+                policy_actual_id.delete_message(ctx, msg_id).await.unwrap();
+            }
             tokio::time::sleep(Duration::from_millis(1000)).await;
         }
     

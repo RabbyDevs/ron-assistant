@@ -23,7 +23,7 @@ use commands::{
         role_log
     }, media_module::{
         convert_gif, convert_video, media_effects
-    }, playground::auror, policy_module::policy, time_module::timed_role, update
+    }, playground::{auror, gamenight_helper}, policy_module::policy, time_module::timed_role, update
 };
 
 static_toml::static_toml! {
@@ -450,7 +450,8 @@ async fn main() {
                 convert_gif::gif(),
                 media_effects::media(),
                 policy::policy(),
-                auror::id_to_mention()
+                auror::id_to_mention(),
+                gamenight_helper::gamenight_helper()
             ];
 
     let color_string = CONFIG.main.color;

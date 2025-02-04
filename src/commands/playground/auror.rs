@@ -25,7 +25,7 @@ pub async fn id_to_mention(
     let no_multiline = no_multiline.unwrap_or_default();
 
     let purified_users = ctx.data().number_regex.replace_all(users.as_str(), "");
-    if purified_users.len() == 0 {
+    if purified_users.is_empty() {
         ctx.say("Command failed; no users inputted, or users improperly inputted.").await?;
         return Ok(());
     }

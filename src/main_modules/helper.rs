@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::Data;
+use unicode_segmentation::UnicodeSegmentation;
 
 use super::{UserId, CONFIG};
 use std::fmt::Write;
@@ -317,4 +318,57 @@ pub async fn get_roblox_avatar_bust(reqwest_client: &Client, user_id: String) ->
 
 pub async fn new_embed_from_template(framework_data: &Data) -> CreateEmbed {
     CreateEmbed::new().color(framework_data.bot_color).footer(CreateEmbedFooter::new("Made by RabbyDevs, with 🦀 and ❤️.").icon_url(framework_data.bot_avatar.clone()))
+}
+
+pub fn extract_emojis(message_content: &str) -> (Vec<String>, Vec<(String, u64)>) {
+    let custom_emoji_regex = regex::Regex::new(r"<:([a-zA-Z0-9_]+):(\d+)>").unwrap();
+    let mut custom_emojis = Vec::new();
+    
+    let mut processed_content = message_content.to_string();
+
+    for cap in custom_emoji_regex.captures_iter(message_content) {
+        if let (Some(name), Some(id_str)) = (cap.get(1), cap.get(2)) {
+            if let Ok(emoji_id) = id_str.as_str().parse::<u64>() {
+                custom_emojis.push((name.as_str().to_string(), emoji_id));
+            }
+        }
+        if let Some(whole_match) = cap.get(0) {
+            processed_content = processed_content.replace(whole_match.as_str(), &" ".repeat(whole_match.len()));
+        }
+    }
+
+    let unicode_emojis: Vec<String> = processed_content
+        .graphemes(true) 
+        .filter(|&g| emojis::get(g).is_some())
+        .map(|g| g.to_string()) 
+        .collect();
+    println!("{:#?}{:#?}{}", unicode_emojis, custom_emojis, message_content);
+
+    (unicode_emojis, custom_emojis)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_emoji_extraction() {
+        let message = "Hello 👋 :wave: world! <:custom:123456> 🌍 :earth: <:other:789012>";
+        let (unicode, custom) = extract_emojis(message);
+        
+        assert_eq!(unicode, vec!["👋".to_string(), "🌍".to_string()]);
+        assert_eq!(custom, vec![
+            ("custom".to_string(), 123456),
+            ("other".to_string(), 789012)
+        ]);
+    }
+
+    #[test]
+    fn test_with_only_unicode() {
+        let message = "Hello 👋 🌍 world!";
+        let (unicode, custom) = extract_emojis(message);
+        
+        assert_eq!(unicode, vec!["👋".to_string(), "🌍".to_string()]);
+        assert_eq!(custom, Vec::<(String, u64)>::new());
+    }
 }

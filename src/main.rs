@@ -64,7 +64,7 @@ async fn do_image_logging(
         let data = framework_data.clone();
         let ctx = ctx.clone();
         tokio::spawn(async move {
-            if guild_id.is_some() && guild_id.unwrap().to_string() == *CONFIG.modules.logging.guild_id {
+            if guild_id.is_some() && guild_id.unwrap().to_string() == *CONFIG.main.guild_id {
                 let log_channel_id = ChannelId::new(CONFIG.modules.logging.attachment_logging_channel_id.parse::<u64>().unwrap());
                 let output_filename = format!("./.tmp/{}", attachment.filename);
                 let response = reqwest_client.get(&attachment.url).send().await.unwrap();
@@ -454,14 +454,16 @@ async fn main() {
                 gamenight_helper::gamenight_helper()
             ];
 
+    let empty_commands: Vec<poise::Command<Data, Error>> = vec![];
+
     let color_string = CONFIG.main.color;
     let colors: Vec<u8> = color_string
         .split(',')
         .map(|s| u8::from_str(s.trim()).expect("Failed to parse color component"))
         .collect();
-            
+
     let (r, g, b) = (colors[0], colors[1], colors[2]);
-    
+
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands,
@@ -471,12 +473,14 @@ async fn main() {
             ..Default::default()
         })
         .setup(move |ctx, ready, framework| {
-            let activity = ActivityData::custom(format!("Running on v{}!", env!("CARGO_PKG_VERSION")));
+            let activity =
+                ActivityData::custom(format!("Running on v{}!", env!("CARGO_PKG_VERSION")));
             let status = OnlineStatus::Online;
 
             ctx.set_presence(Some(activity), status);
             Box::pin(async move {
-                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                poise::builtins::register_globally(ctx, &empty_commands).await?;
+                poise::builtins::register_in_guild(ctx, &framework.options().commands, GuildId::new(u64::from_str(CONFIG.main.guild_id).unwrap())).await?;
                 Ok(Data {
                     rbx_client: Arc::new(ClientBuilder::new().build()),
                     reqwest_client: Arc::new(Client::new()),

@@ -5,16 +5,19 @@ use super::{Context, Error, serenity, FromStr};
 
 #[poise::command(slash_command, prefix_command)]
 /// All this does is literally just react with all the emojis in the last message that had emojis.
-pub async fn gamenight_helper(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn gamenight_helper(
+    ctx: Context<'_>,
+    message_count: u64
+) -> Result<(), Error> {
     let msg = ctx.say("Getting latest message and doing some calculations...").await?;
     let channel_id = ctx.channel_id();
     
-    let last_10_messages: Vec<serenity::Message> = channel_id
-        .messages(ctx.http(), GetMessages::new().limit(5))
+    let last_messages: Vec<serenity::Message> = channel_id
+        .messages(ctx.http(), GetMessages::new().limit(message_count.try_into().unwrap_or(5)))
         .await
         .map_err(Error::from)?;
 
-    for message in last_10_messages.iter() {
+    for message in last_messages.iter() {
         let (unicode_emojis, custom_emojis) = helper::extract_emojis(&message.content);
         
         if unicode_emojis.is_empty() && custom_emojis.is_empty() {

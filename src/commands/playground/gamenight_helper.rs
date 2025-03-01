@@ -9,7 +9,7 @@ pub async fn gamenight_helper(ctx: Context<'_>) -> Result<(), Error> {
     let msg = ctx.say("Getting latest message and doing some calculations...").await?;
     let channel_id = ctx.channel_id();
     
-    let last_10_messages = channel_id
+    let last_10_messages: Vec<serenity::Message> = channel_id
         .messages(ctx.http(), GetMessages::new().limit(5))
         .await
         .map_err(Error::from)?;

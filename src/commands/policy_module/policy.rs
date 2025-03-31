@@ -1,4 +1,5 @@
 use crate::Data;
+use crate::CONFIG;
 use super::{Context, Error};
 use poise::Modal;
 
@@ -18,12 +19,26 @@ struct EditModal {
     content: String,
 }
 
+fn has_required_role(ctx: &poise::ApplicationContext<'_, Data, Error>, author: &User) -> bool {
+    let role_list = CONFIG.main.admin_role_ids;
+    let mut has_role = false;
+    for role in role_list {
+        if author.has_role(ctx.http(), CONFIG.main.guild_id, role) {has_role = true}
+    }
+
+    has_role
+}
+
 #[poise::command(slash_command)]
 /// Edit an existing policy
 pub async fn edit(
     ctx: poise::ApplicationContext<'_, Data, Error>,
     #[description = "Policy internal name"] internal_name: String,
 ) -> Result<(), Error> {
+    if has_required_role(&ctx, ctx.author()) == false {
+        ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
+        return Ok(())
+    }
     let policy_system = &ctx.data().policy_system;
 
     let data = EditModal::execute(ctx).await?;
@@ -42,11 +57,13 @@ pub async fn delete(
     ctx: Context<'_>,
     #[description = "Policy internal name"] internal_name: String,
 ) -> Result<(), Error> {
+    if has_required_role(&ctx, ctx.author()) == false {
+        ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
+        return Ok(())
+    }
     let policy_system = &ctx.data().policy_system;
-    // Delete the policy
     policy_system.remove(&internal_name).unwrap();
     
-    // Notify the user
     ctx.say(format!("Policy '{}' deleted and changes cached.", internal_name)).await?;
     Ok(())
 }
@@ -56,6 +73,10 @@ pub async fn delete(
 pub async fn publish(
     ctx: Context<'_>
 ) -> Result<(), Error> {
+    if has_required_role(&ctx, ctx.author()) == false {
+        ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
+        return Ok(())
+    }
     let policy_system = &ctx.data().policy_system;
     ctx.say("Policy cached changes applying.".to_string()).await?;
     policy_system.update_policy(&ctx.serenity_context().clone()).await.unwrap();
@@ -67,6 +88,10 @@ pub async fn publish(
 pub async fn list(
     ctx: Context<'_>
 ) -> Result<(), Error> {
+    if has_required_role(&ctx, ctx.author()) == false {
+        ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
+        return Ok(())
+    }
     let policy_system = &ctx.data().policy_system;
     let policies = policy_system.list_policies_internal_names().unwrap();
     let mut policy_list_string = String::from("Current Policy Internal Names:");
@@ -81,10 +106,17 @@ pub async fn list(
 }
 
 use poise::serenity_prelude as serenity;
+use ::serenity::all::User;
 
 #[poise::command(slash_command, prefix_command)]
 /// Clear all policies
-pub async fn clear_all(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn clear_all(
+    ctx: Context<'_>
+) -> Result<(), Error> {
+    if has_required_role(&ctx, ctx.author()) == false {
+        ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
+        return Ok(())
+    }
     let policy_system = &ctx.data().policy_system;
     let uuid_yes = ctx.id();
     let uuid_no = uuid::Uuid::new_v4();

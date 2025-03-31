@@ -19,11 +19,11 @@ struct EditModal {
     content: String,
 }
 
-async fn has_required_role(ctx: &Context<'_>, author: &User) -> bool {
+async fn has_required_role(ctx: &poise::ApplicationContext<'_, Data, Error>, author: &User) -> bool {
     let role_list = CONFIG.main.admin_role_ids;
     let mut has_role = false;
     for role in role_list {
-        if author.has_role(ctx.http(), CONFIG.main.guild_id, role).await.unwrap() {has_role = true}
+        if author.has_role(ctx.http(), GuildId::new(CONFIG.main.guild_id.parse().unwrap()), RoleId::new(role.try_into().unwrap())).await.unwrap() {has_role = true}
     }
 
     has_role
@@ -32,10 +32,10 @@ async fn has_required_role(ctx: &Context<'_>, author: &User) -> bool {
 #[poise::command(slash_command)]
 /// Edit an existing policy
 pub async fn edit(
-    ctx: Context<'_>,
+    ctx: poise::ApplicationContext<'_, Data, Error>,
     #[description = "Policy internal name"] internal_name: String,
 ) -> Result<(), Error> {
-    if has_required_role(&ctx, ctx.author()).await == false {
+    if !(has_required_role(&ctx, ctx.author()).await) {
         ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
         return Ok(())
     }
@@ -51,13 +51,13 @@ pub async fn edit(
     Ok(())
 }
 
-#[poise::command(slash_command, prefix_command)]
+#[poise::command(slash_command)]
 /// Delete an existing policy
 pub async fn delete(
-    ctx: Context<'_>,
+    ctx: poise::ApplicationContext<'_, Data, Error>,
     #[description = "Policy internal name"] internal_name: String,
 ) -> Result<(), Error> {
-    if has_required_role(&ctx, ctx.author()).await == false {
+    if !(has_required_role(&ctx, ctx.author()).await) {
         ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
         return Ok(())
     }
@@ -68,12 +68,12 @@ pub async fn delete(
     Ok(())
 }
 
-#[poise::command(slash_command, prefix_command)]
+#[poise::command(slash_command)]
 /// Publish all cached changes
 pub async fn publish(
-    ctx: Context<'_>
+    ctx: poise::ApplicationContext<'_, Data, Error>
 ) -> Result<(), Error> {
-    if has_required_role(&ctx, ctx.author()).await == false {
+    if !(has_required_role(&ctx, ctx.author()).await) {
         ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
         return Ok(())
     }
@@ -83,12 +83,12 @@ pub async fn publish(
     Ok(())
 }
 
-#[poise::command(slash_command, prefix_command)]
+#[poise::command(slash_command)]
 /// List all policies and their internal names
 pub async fn list(
-    ctx: Context<'_>
+    ctx: poise::ApplicationContext<'_, Data, Error>
 ) -> Result<(), Error> {
-    if has_required_role(&ctx, ctx.author()).await == false {
+    if !(has_required_role(&ctx, ctx.author()).await) {
         ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
         return Ok(())
     }
@@ -106,14 +106,16 @@ pub async fn list(
 }
 
 use poise::serenity_prelude as serenity;
+use ::serenity::all::GuildId;
+use ::serenity::all::RoleId;
 use ::serenity::all::User;
 
-#[poise::command(slash_command, prefix_command)]
+#[poise::command(slash_command)]
 /// Clear all policies
 pub async fn clear_all(
-    ctx: Context<'_>
+    ctx: poise::ApplicationContext<'_, Data, Error>
 ) -> Result<(), Error> {
-    if has_required_role(&ctx, ctx.author()).await == false {
+    if !(has_required_role(&ctx, ctx.author()).await) {
         ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
         return Ok(())
     }

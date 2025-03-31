@@ -19,7 +19,7 @@ struct EditModal {
     content: String,
 }
 
-async fn has_required_role(ctx: &poise::ApplicationContext<'_, Data, Error>, author: &User) -> bool {
+async fn has_required_role(ctx: &Context<'_>, author: &User) -> bool {
     let role_list = CONFIG.main.admin_role_ids;
     let mut has_role = false;
     for role in role_list {
@@ -32,7 +32,7 @@ async fn has_required_role(ctx: &poise::ApplicationContext<'_, Data, Error>, aut
 #[poise::command(slash_command)]
 /// Edit an existing policy
 pub async fn edit(
-    ctx: poise::ApplicationContext<'_, Data, Error>,
+    ctx: Context<'_>,
     #[description = "Policy internal name"] internal_name: String,
 ) -> Result<(), Error> {
     if has_required_role(&ctx, ctx.author()).await == false {

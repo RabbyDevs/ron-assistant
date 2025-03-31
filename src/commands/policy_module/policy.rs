@@ -19,11 +19,11 @@ struct EditModal {
     content: String,
 }
 
-fn has_required_role(ctx: &poise::ApplicationContext<'_, Data, Error>, author: &User) -> bool {
+async fn has_required_role(ctx: &poise::ApplicationContext<'_, Data, Error>, author: &User) -> bool {
     let role_list = CONFIG.main.admin_role_ids;
     let mut has_role = false;
     for role in role_list {
-        if author.has_role(ctx.http(), CONFIG.main.guild_id, role) {has_role = true}
+        if author.has_role(ctx.http(), CONFIG.main.guild_id, role).await.unwrap() {has_role = true}
     }
 
     has_role
@@ -35,7 +35,7 @@ pub async fn edit(
     ctx: poise::ApplicationContext<'_, Data, Error>,
     #[description = "Policy internal name"] internal_name: String,
 ) -> Result<(), Error> {
-    if has_required_role(&ctx, ctx.author()) == false {
+    if has_required_role(&ctx, ctx.author()).await == false {
         ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
         return Ok(())
     }
@@ -57,7 +57,7 @@ pub async fn delete(
     ctx: Context<'_>,
     #[description = "Policy internal name"] internal_name: String,
 ) -> Result<(), Error> {
-    if has_required_role(&ctx, ctx.author()) == false {
+    if has_required_role(&ctx, ctx.author()).await == false {
         ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
         return Ok(())
     }
@@ -73,7 +73,7 @@ pub async fn delete(
 pub async fn publish(
     ctx: Context<'_>
 ) -> Result<(), Error> {
-    if has_required_role(&ctx, ctx.author()) == false {
+    if has_required_role(&ctx, ctx.author()).await == false {
         ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
         return Ok(())
     }
@@ -88,7 +88,7 @@ pub async fn publish(
 pub async fn list(
     ctx: Context<'_>
 ) -> Result<(), Error> {
-    if has_required_role(&ctx, ctx.author()) == false {
+    if has_required_role(&ctx, ctx.author()).await == false {
         ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
         return Ok(())
     }
@@ -113,7 +113,7 @@ use ::serenity::all::User;
 pub async fn clear_all(
     ctx: Context<'_>
 ) -> Result<(), Error> {
-    if has_required_role(&ctx, ctx.author()) == false {
+    if has_required_role(&ctx, ctx.author()).await == false {
         ctx.say("You must be an administrator in Rise of Nations to use this command.").await?;
         return Ok(())
     }

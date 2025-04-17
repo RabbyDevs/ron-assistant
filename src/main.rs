@@ -9,10 +9,10 @@ use poise::serenity_prelude as serenity;
 use reqwest::Client;
 
 mod main_modules;
-use main_modules::{helper, media::{video_convert, video_format_changer, video_to_gif_converter, image_to_png_converter, png_to_gif_converter, QualityPreset, apply_mask}, timer::TimerSystem, deleted_attachments::{self, AttachmentStoreDB, AttachmentStore}, policy_updater::PolicySystem};
+use main_modules::{deleted_attachments::{self, AttachmentStore, AttachmentStoreDB}, guide_updater::GuideSystem, helper, media::{apply_mask, image_to_png_converter, png_to_gif_converter, video_convert, video_format_changer, video_to_gif_converter, QualityPreset}, policy_updater::PolicySystem, timer::TimerSystem};
 mod commands;
 use commands::{
-    info_module::{
+    guide_module::guide, info_module::{
         discord_info,
         get_info
     }, log_module::{
@@ -39,6 +39,7 @@ pub struct Data {
     pub attachment_db: Arc<Mutex<AttachmentStoreDB>>,
     pub queued_logs: Arc<Mutex<Vec<LoggingQueue>>>,
     pub policy_system: PolicySystem,
+    pub guide_system: GuideSystem,
     pub bot_color: Color,
     pub bot_avatar: String
 }
@@ -451,7 +452,8 @@ async fn main() {
                 media_effects::media(),
                 policy::policy(),
                 auror::id_to_mention(),
-                gamenight_helper::gamenight_helper()
+                gamenight_helper::gamenight_helper(),
+                guide::guide()
             ];
 
     let empty_commands: Vec<poise::Command<Data, Error>> = vec![];
@@ -489,6 +491,7 @@ async fn main() {
                     attachment_db: AttachmentStoreDB::get_instance(),
                     queued_logs: Arc::new(Mutex::new(vec![])),
                     policy_system: PolicySystem::init("./dbs/policy_system").unwrap(),
+                    guide_system: GuideSystem::init("./dbs/guide_system").unwrap(),
                     bot_color: Color::from_rgb(r, g, b),
                     bot_avatar: ready.user.avatar_url().unwrap()
                 })

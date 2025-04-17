@@ -8,3 +8,4 @@ pub mod info_module;
 pub mod game_module;
 pub mod policy_module;
 pub mod playground;
+pub mod guide_module;

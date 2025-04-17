@@ -305,7 +305,7 @@ fn apply_video_mask(
 }
 
 pub fn video_format_changer(input_filename: &str, output_filename: &str) -> Output {
-    let output = Command::new("ffmpeg")
+    Command::new("ffmpeg")
         .args([
             "-i", input_filename,
             "-c:v", "libx264",
@@ -317,8 +317,7 @@ pub fn video_format_changer(input_filename: &str, output_filename: &str) -> Outp
             output_filename
         ])
         .output()
-        .expect("Failed to execute FFmpeg command.");
-    output
+        .expect("Failed to execute FFmpeg command.")
 }
 
 pub async fn video_convert(new_message: Message, ctx: serenity::prelude::Context, reqwest_client: Arc<Client>, attachment: Attachment) {
@@ -351,7 +350,7 @@ pub async fn video_convert(new_message: Message, ctx: serenity::prelude::Context
 }
 
 pub fn image_to_png_converter(input_filename: &str, output_filename: &str) -> std::process::Output {
-    let output = Command::new("ffmpeg")
+    Command::new("ffmpeg")
         .args([
             "-i", input_filename,
             "-f", "png",
@@ -359,9 +358,7 @@ pub fn image_to_png_converter(input_filename: &str, output_filename: &str) -> st
             output_filename
         ])
         .output()
-        .expect("Failed to execute FFmpeg command.");
-
-    output
+        .expect("Failed to execute FFmpeg command.")
 }
 
 #[derive(Debug, Clone, Copy, poise::ChoiceParameter)]

@@ -8,7 +8,7 @@ use super::CONFIG;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize)]
-pub struct PolicyEntry {
+pub struct GuideEntry {
     pub content: String,
     pub order: u64,
 }
@@ -22,14 +22,14 @@ struct TocEntry {
 }
 
 #[derive(Clone)]
-pub struct PolicySystem {
+pub struct GuideSystem {
     db: Arc<Db>,
 }
 
-impl PolicySystem {
+impl GuideSystem {
     pub fn init(db_path: &str) -> sled::Result<Self> {
         let db = Arc::new(sled::open(db_path)?);
-        let system = PolicySystem {
+        let system = GuideSystem {
             db: Arc::clone(&db)
         };
 
@@ -37,7 +37,7 @@ impl PolicySystem {
     }
 
     pub fn edit(&self, internal_name: &str, content: String, order: u64) -> sled::Result<()> {
-        let entry = PolicyEntry { content, order };
+        let entry = GuideEntry { content, order };
         let serialized = bincode::serialize(&entry).map_err(|_| sled::Error::Io(std::io::Error::other("Serialization error")))?;
         self.db.insert(internal_name, serialized)?;
         Ok(())
@@ -48,13 +48,13 @@ impl PolicySystem {
         Ok(())
     }
 
-    pub fn list_policies(&self) -> sled::Result<Vec<(String, PolicyEntry)>> {
+    pub fn list_policies(&self) -> sled::Result<Vec<(String, GuideEntry)>> {
         let mut policies = Vec::new();
         
         for result in self.db.iter() {
             let (key, value) = result?;
             let key_str = String::from_utf8(key.to_vec()).map_err(|_| sled::Error::Io(std::io::Error::other("UTF-8 Error")))?;
-            let entry: PolicyEntry = bincode::deserialize(&value)
+            let entry: GuideEntry = bincode::deserialize(&value)
                 .map_err(|_| sled::Error::Io(std::io::Error::other("Deserialization error")))?;
             
             policies.push((key_str, entry));
@@ -65,13 +65,13 @@ impl PolicySystem {
         Ok(policies)
     }
 
-    pub fn list_policies_internal_names(&self) -> sled::Result<Vec<(String, PolicyEntry)>> {
+    pub fn list_policies_internal_names(&self) -> sled::Result<Vec<(String, GuideEntry)>> {
         let mut policies = Vec::new();
         
         for result in self.db.iter() {
             let (key, value) = result?;
             let key_str = String::from_utf8(key.to_vec()).map_err(|_| sled::Error::Io(std::io::Error::other("UTF-8 Error")))?;
-            let entry: PolicyEntry = bincode::deserialize(&value)
+            let entry: GuideEntry = bincode::deserialize(&value)
                 .map_err(|_| sled::Error::Io(std::io::Error::other("Deserialization error")))?;
             
             policies.push((key_str, entry));
@@ -82,39 +82,39 @@ impl PolicySystem {
         Ok(policies)
     }
 
-    pub async fn update_policy(&self, ctx: &Context) -> sled::Result<()> {
+    pub async fn update_guide(&self, ctx: &Context) -> sled::Result<()> {
         let policies = self.list_policies()?;
     
         let mut file_contents = String::new();
-        for (_, policy) in policies.iter() {
+        for (_, guide) in policies.iter() {
             file_contents.push_str(&format!(
                 "{}\n** **\n",
-                policy.content
+                guide.content
             ));
         }
     
-        let previous_file_path = Path::new("policy.txt");
-        let current_file_path = Path::new("current_policy.txt");
+        let previous_file_path = Path::new("guide.txt");
+        let current_file_path = Path::new("current_guide.txt");
     
         if previous_file_path.exists() {
             let previous_content = fs::read_to_string(previous_file_path).unwrap_or_default();
             if previous_content != file_contents {
-                let changes_channel_id = CONFIG.modules.policy.policy_changes_channel_id.parse::<u64>().unwrap();
+                let changes_channel_id = CONFIG.modules.guide.guide_changes_channel_id.parse::<u64>().unwrap();
                 let changes_channel = ctx.http.get_channel(changes_channel_id.into()).await.unwrap();
     
                 let diff = diff_policies(&previous_content, &file_contents);
-                send_code_blocks(ctx, &changes_channel.id(), "Policy updates detected:", &diff).await;
+                send_code_blocks(ctx, &changes_channel.id(), "Guide updates detected:", &diff).await;
             }
         }
     
         let mut file = fs::File::create(current_file_path)?;
         file.write_all(file_contents.as_bytes())?;
     
-        let policy_channel_id = CONFIG.modules.policy.policy_channel_id.parse::<u64>().unwrap();
-        let policy_channel = ctx.http.get_channel(policy_channel_id.into()).await.unwrap();
+        let guide_channel_id = CONFIG.modules.guide.guide_channel_id.parse::<u64>().unwrap();
+        let guide_channel = ctx.http.get_channel(guide_channel_id.into()).await.unwrap();
     
-        let policy_actual_id = ChannelId::new(policy_channel_id);
-        let mut message_stream = policy_actual_id.messages_iter(ctx).boxed();
+        let guide_actual_id = ChannelId::new(guide_channel_id);
+        let mut message_stream = guide_actual_id.messages_iter(ctx).boxed();
         let mut messages_to_delete = Vec::new();
                         
         while let Some(message_result) = message_stream.next().await {
@@ -125,17 +125,17 @@ impl PolicySystem {
         while !messages_to_delete.is_empty() {
             let to_delete = messages_to_delete.split_off(messages_to_delete.len().saturating_sub(100));
             for msg_id in to_delete {
-                policy_actual_id.delete_message(ctx, msg_id).await.unwrap();
+                guide_actual_id.delete_message(ctx, msg_id).await.unwrap();
             }
             tokio::time::sleep(Duration::from_millis(1000)).await;
         }
     
         let mut all_headings = Vec::new();
     
-        for (_, policy) in policies.iter() {
+        for (_, guide) in policies.iter() {
             let mut sections = Vec::new();
             let mut current_section = String::new();
-            let mut lines = policy.content.lines().peekable();
+            let mut lines = guide.content.lines().peekable();
             
             while let Some(line) = lines.next() {
                 if line.starts_with('#') && !current_section.is_empty() {
@@ -152,7 +152,7 @@ impl PolicySystem {
             }
     
             for section in sections {
-                let messages = send_long_message(ctx, &policy_channel.id(), &format!("{}\n** **", section)).await;
+                let messages = send_long_message(ctx, &guide_channel.id(), &format!("{}\n** **", section)).await;
                 let message_link = messages.first().unwrap().link();
                 
                 let section_headings = extract_headings(&section, &message_link);
@@ -163,7 +163,7 @@ impl PolicySystem {
         let toc_tree = build_toc_hierarchy(all_headings);
         let toc_content = format_toc(&toc_tree);
     
-        send_long_message(ctx, &policy_channel.id(), &format!("# Table of Contents\n{}", toc_content)).await;
+        send_long_message(ctx, &guide_channel.id(), &format!("# Table of Contents\n{}", toc_content)).await;
     
         fs::rename(current_file_path, previous_file_path)?;
     

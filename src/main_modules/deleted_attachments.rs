@@ -37,7 +37,7 @@ impl AttachmentStoreDB {
         let key = store.message_id.to_string().into_bytes();
         let value = match serde_json::to_vec(store) {
             Ok(v) => v,
-            Err(e) => return Err(SledError::Io(std::io::Error::new(std::io::ErrorKind::Other, e))),
+            Err(e) => return Err(SledError::Io(std::io::Error::other(e))),
         };
         self.db.insert(key, value)?;
         Ok(())

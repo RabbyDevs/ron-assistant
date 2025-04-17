@@ -1,9 +1,10 @@
-use std::{sync::{Arc, Mutex}, time::{Duration, SystemTime}};
+use std::{sync::Arc, time::{Duration, SystemTime}};
 use chrono::{DateTime, Utc};
 
 use once_cell::sync::Lazy;
 use sled::{Db, Error as SledError};
 use serenity::all::{Attachment, MessageId, Timestamp, UserId};
+use tokio::sync::Mutex;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct AttachmentStore {
@@ -78,13 +79,13 @@ static ATTACHMENT_STORE_DB: Lazy<Arc<Mutex<AttachmentStoreDB>>> = Lazy::new(|| {
     Arc::new(Mutex::new(AttachmentStoreDB::new()))
 });
 
-pub fn start_attachment_db() {
+pub async fn start_attachment_db() {
     let db = AttachmentStoreDB::get_instance();
 
-    std::thread::spawn(move || {
+    std::thread::spawn(async move || {
         loop {
             std::thread::sleep(Duration::from_secs(1800)); // 30 minutes
-            if let Err(e) = db.lock().unwrap().delete_old_entries() {
+            if let Err(e) = db.lock().await.delete_old_entries() {
                 eprintln!("Error deleting old attachment entries: {}", e);
             }
         }

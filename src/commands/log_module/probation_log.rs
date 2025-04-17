@@ -83,7 +83,9 @@ pub async fn probationlog(
     let mut duration_number = 0;
     for response in response_vec {
         let response = format!("{}{}", response, match durations.get(duration_number) { Some(dur) => dur, None => continue });
-        ctx.say(response).await?;
+        ctx.say(response.clone()).await?;
+        let extra_response = format!("{}{}", "# Probation\n", response);
+        ctx.say(extra_response).await?;
         if durations.get(duration_number + 1 ).is_some() { duration_number += 1 }
     }
     Ok(())

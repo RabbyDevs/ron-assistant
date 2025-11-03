@@ -23,7 +23,7 @@ async fn has_required_role(ctx: &poise::ApplicationContext<'_, Data, Error>, aut
     let role_list = CONFIG.main.admin_role_ids;
     let mut has_role = false;
     for role in role_list {
-        if author.has_role(ctx.http(), GuildId::new(CONFIG.main.guild_id.parse().unwrap()), RoleId::new(role.parse().unwrap())).await.unwrap() {has_role = true}
+        if author.has_role(ctx.http(), GuildId::new(CONFIG.main.guild_id.parse().unwrap()), RoleId::new(role.try_into().unwrap())).await.unwrap() {has_role = true}
     }
 
     has_role

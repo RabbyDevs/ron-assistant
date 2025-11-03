@@ -1,7 +1,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Local};
 use regex::Regex;
-use serenity::all::EditMessage;
+use serenity::all::{EditMessage, CreateButton, CreateActionRow, ButtonStyle};
 use serenity::builder::CreateMessage;
 use super::{Context, Error, helper, FromStr, CONFIG};
 
@@ -59,7 +59,14 @@ pub async fn getinfo(
                 .field("User ID", format!("{}", user_details.id), true)
                 .field("Account Creation", format!("<t:{}:D>{}", created_at_timestamp, new_account_message), false)
                 .thumbnail(avatar_image.as_str().to_string());
-            ctx.channel_id().send_message(&ctx.http(), CreateMessage::new().add_embed(embed)).await?;
+
+            // Create "Create Modlog" button
+            let button = CreateButton::new(format!("create_roblox_log:none:{}:{}:{}", user_details.username, user_details.id, ctx.author().id))
+                .label("Create Modlog")
+                .style(ButtonStyle::Primary);
+            let components = vec![CreateActionRow::Buttons(vec![button])];
+
+            ctx.channel_id().send_message(&ctx.http(), CreateMessage::new().add_embed(embed).components(components)).await?;
         } else {
             ctx.channel_id().say(&ctx.http(), "### Username").await?;
             ctx.channel_id().say(&ctx.http(), user_details.username.to_string()).await?;
@@ -86,16 +93,22 @@ pub async fn getinfo(
                 .field("Description", if sanitized_description.is_empty() { "No description found." } else { &sanitized_description }, false)
                 .field("Account Creation", format!("<t:{}:D>{}", created_at_timestamp, new_account_message), false);
 
-            let mut init_message = ctx.channel_id().send_message(&ctx.http(), CreateMessage::new().add_embed(embed.clone())).await?;
+            // Create "Create Modlog" button
+            let button = CreateButton::new(format!("create_roblox_log:none:{}:{}:{}", user_details.username, user_details.id, ctx.author().id))
+                .label("Create Modlog")
+                .style(ButtonStyle::Primary);
+            let components = vec![CreateActionRow::Buttons(vec![button])];
+
+            let mut init_message = ctx.channel_id().send_message(&ctx.http(), CreateMessage::new().add_embed(embed.clone()).components(components.clone())).await?;
             
             if let Ok(friend_count) = friend_count_future.await {
                 embed = embed.field("Friend Count", friend_count.to_string(), true);
-                init_message.edit(&ctx.http(), EditMessage::new().add_embed(embed.clone())).await?;
+                init_message.edit(&ctx.http(), EditMessage::new().add_embed(embed.clone()).components(components.clone())).await?;
             }
 
             if let Ok(group_count) = group_count_future.await {
                 embed = embed.field("Group Count", group_count.to_string(), true);
-                init_message.edit(&ctx.http(), EditMessage::new().add_embed(embed.clone())).await?;
+                init_message.edit(&ctx.http(), EditMessage::new().add_embed(embed.clone()).components(components.clone())).await?;
             }
 
             if let Ok((badge_count, win_rate, awarders_string)) = badge_data_future.await {
@@ -103,10 +116,10 @@ pub async fn getinfo(
                     .field("Badge Count", badge_count.to_string(), true)
                     .field("Average Win Rate", format!("{:.3}%", win_rate), true)
                     .field("Top Badge Givers", awarders_string, true);
-                init_message.edit(&ctx.http(), EditMessage::new().add_embed(embed.clone())).await?;
+                init_message.edit(&ctx.http(), EditMessage::new().add_embed(embed.clone()).components(components.clone())).await?;
             }
 
-            init_message.edit(&ctx.http(), EditMessage::new().add_embed(embed.clone())).await?;
+            init_message.edit(&ctx.http(), EditMessage::new().add_embed(embed.clone()).components(components)).await?;
         }
     }
 

@@ -9,7 +9,7 @@ use poise::serenity_prelude as serenity;
 use reqwest::Client;
 
 mod main_modules;
-use main_modules::{deleted_attachments::{self, AttachmentStore, AttachmentStoreDB}, guide_updater::GuideSystem, helper, media::{apply_mask, image_to_png_converter, png_to_gif_converter, video_convert, video_format_changer, video_to_gif_converter, QualityPreset}, policy_updater::PolicySystem, timer::TimerSystem};
+use main_modules::{deleted_attachments::{self, AttachmentStore, AttachmentStoreDB}, guide_updater::GuideSystem, helper, log_interactions, media::{apply_mask, image_to_png_converter, png_to_gif_converter, video_convert, video_format_changer, video_to_gif_converter, QualityPreset}, policy_updater::PolicySystem, timer::TimerSystem};
 mod commands;
 use commands::{
     guide_module::guide, info_module::{
@@ -357,21 +357,44 @@ async fn event_handler(
 
         serenity::FullEvent::ReactionRemoveEmoji { removed_reactions } => {
             reaction_logging(
-                ctx, 
+                ctx,
                 framework.user_data.clone(),
-                "remove_emoji", 
+                "remove_emoji",
                 ReactionInfo {
-                    channel_id: removed_reactions.channel_id, 
+                    channel_id: removed_reactions.channel_id,
                     message_id: removed_reactions.message_id,
                     user_id: if removed_reactions.user_id.is_none() {
                         None
                     } else {
                         Some(removed_reactions.user_id.unwrap())
                     },
-                    guild_id: removed_reactions.guild_id, 
+                    guild_id: removed_reactions.guild_id,
                     emoji: Some(removed_reactions.emoji.clone())
                 }
             ).await;
+        }
+
+        serenity::FullEvent::InteractionCreate { interaction } => {
+            // Handle button clicks and modal submissions for modlog creation
+            match interaction {
+                serenity::Interaction::Component(component_interaction) => {
+                    // Handle "Create Modlog" button clicks
+                    if component_interaction.data.custom_id.starts_with("create_roblox_log:") {
+                        if let Err(err) = log_interactions::handle_create_log_button(ctx, component_interaction).await {
+                            eprintln!("Error handling create log button: {:?}", err);
+                        }
+                    }
+                }
+                serenity::Interaction::Modal(modal_interaction) => {
+                    // Handle modal submissions for modlog creation
+                    if modal_interaction.data.custom_id.starts_with("roblox_log_modal:") {
+                        if let Err(err) = log_interactions::handle_log_modal_submit(ctx, modal_interaction).await {
+                            eprintln!("Error handling log modal submit: {:?}", err);
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
 
         _ => {}
@@ -493,7 +516,7 @@ async fn main() {
                     policy_system: PolicySystem::init("./dbs/policy_system").unwrap(),
                     guide_system: GuideSystem::init("./dbs/guide_system").unwrap(),
                     bot_color: Color::from_rgb(r, g, b),
-                    bot_avatar: ready.user.avatar_url().unwrap()
+                    bot_avatar: ready.user.avatar_url().unwrap_or_else(|| ready.user.default_avatar_url())
                 })
             })
         })

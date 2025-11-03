@@ -109,10 +109,8 @@ pub async fn getinfo(
 
         // Create "Create Modlog" button
         let button = CreateButton::new(format!(
-            "create_roblox_log:none:{}:{}:{}",
-            user_details.username,
-            user_details.id,
-            ctx.author().id
+            "create_roblox_log:{}:{}",
+            user_details.username, user_details.id
         ))
         .label("Create Modlog")
         .style(ButtonStyle::Primary);

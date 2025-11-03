@@ -411,7 +411,23 @@ pub async fn merge_types(
                 };
             roblox_ids.push(roblox_id_str)
         } else if user.len() < 17 && user.chars().all(|c| c.is_ascii_digit()) {
-            roblox_ids.push(user)
+            let user_search = match rbx_client
+                .username_user_details(vec![user.clone()], false)
+                .await
+            {
+                Ok(id) => id,
+                Err(err) => {
+                    errors_vector.push(format!(
+                        "Couldn't find user details for {}, details:\n{}",
+                        user, err
+                    ));
+                    continue;
+                }
+            };
+            roblox_ids.push(user);
+            for details in user_search {
+                roblox_ids.push(details.id.to_string())
+            }
         } else if !user.chars().all(|c| c.is_ascii_digit()) {
             let user_search = match rbx_client
                 .username_user_details(vec![user.clone()], false)

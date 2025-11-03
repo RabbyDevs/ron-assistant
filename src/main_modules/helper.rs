@@ -1,32 +1,90 @@
 #![allow(nonstandard_style)]
+use crate::Data;
 use regex::Regex;
-use reqwest::header::HeaderValue;
 use reqwest::Client;
+use reqwest::header::HeaderValue;
 use serde_json::Value;
 use serenity::all::{CreateEmbed, CreateEmbedFooter};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::Data;
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::{UserId, CONFIG};
+use super::{CONFIG, UserId};
 use std::fmt::Write;
 
-pub async fn discord_id_to_roblox_id(reqwest_client: &Client, discord_id: UserId) -> Result<String, String> {
+pub async fn discord_id_to_roblox_id(
+    reqwest_client: &Client,
+    discord_id: UserId,
+) -> Result<String, String> {
     let quote_regex = Regex::new("/\"/gi").expect("regex err");
-    let bloxlink_api_key: HeaderValue = CONFIG.main.bloxlink_api_key.parse::<HeaderValue>().expect("err");
+    let bloxlink_api_key: HeaderValue = CONFIG
+        .main
+        .bloxlink_global_api_key
+        .parse::<HeaderValue>()
+        .expect("err");
 
-    let url = format!("https://api.blox.link/v4/public/discord-to-roblox/{}", discord_id);
-    let response = reqwest_client.get(url)
+    let url = format!(
+        "https://api.blox.link/v4/public/discord-to-roblox/{}",
+        discord_id
+    );
+    let response = reqwest_client
+        .get(url)
         .header("Authorization", bloxlink_api_key)
         .send()
-        .await.expect("??");
+        .await
+        .expect("??");
     if response.status() != reqwest::StatusCode::OK {
-        Err(format!("Something went wrong attempting to get Bloxlink data for user `{}`. They might not be verified with Bloxlink.", discord_id))
+        Err(format!(
+            "Something went wrong attempting to get Bloxlink data for user `{}`. They might not be verified with Bloxlink.",
+            discord_id
+        ))
     } else {
-        let serialized_json: Value = serde_json::from_str(response.text().await.expect("err").as_str()).expect("err");
-        Ok(quote_regex.replace(serialized_json["robloxID"].as_str().unwrap(), "").to_string())
+        let serialized_json: Value =
+            serde_json::from_str(response.text().await.expect("err").as_str()).expect("err");
+        Ok(quote_regex
+            .replace(serialized_json["robloxID"].as_str().unwrap(), "")
+            .to_string())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct ReverseLookupResponse {
+    #[serde(rename = "discordIDs")]
+    discord_IDs: Vec<String>,
+}
+
+pub async fn roblox_id_to_discord_ids(
+    reqwest_client: &Client,
+    roblox_id: String,
+) -> Result<Vec<String>, String> {
+    let bloxlink_api_key: HeaderValue = CONFIG
+        .main
+        .bloxlink_local_api_key
+        .parse::<HeaderValue>()
+        .expect("err");
+
+    let url = format!(
+        "https://api.blox.link/v4/public/guilds/{}/roblox-to-discord/{}",
+        CONFIG.main.guild_id, roblox_id
+    );
+    let response = reqwest_client
+        .get(url)
+        .header("Authorization", bloxlink_api_key)
+        .send()
+        .await
+        .expect("??");
+    if response.status() != reqwest::StatusCode::OK {
+        Err(format!(
+            "Something went wrong attempting to get Bloxlink data for user `{}`. They might not be verified with Bloxlink.",
+            roblox_id
+        ))
+    } else {
+        Ok(response
+            .json::<ReverseLookupResponse>()
+            .await
+            .unwrap()
+            .discord_IDs)
     }
 }
 
@@ -38,26 +96,56 @@ pub async fn duration_conversion(duration_string: String) -> Result<(u64, u64, S
     date_map.insert("w", (604800, "Week"));
     date_map.insert("m", (2629743, "Month"));
     date_map.insert("y", (31556952, "Year"));
-    let duration_list = duration_string.split(' ').map(str::to_string).collect::<Vec<String>>();
+    let duration_list = duration_string
+        .split(' ')
+        .map(str::to_string)
+        .collect::<Vec<String>>();
     let mut unix_total = 0;
     let mut final_string = String::new();
-    if duration_list.is_empty() {return Err(format!("Something went wrong parsing duration string `{}`.", duration_string));} else {
+    if duration_list.is_empty() {
+        return Err(format!(
+            "Something went wrong parsing duration string `{}`.",
+            duration_string
+        ));
+    } else {
         for duration in duration_list.clone() {
             let chars = duration.chars();
-            let amount = match chars.clone().filter(|x| x.is_ascii_digit()).collect::<String>().parse::<u64>() {
+            let amount = match chars
+                .clone()
+                .filter(|x| x.is_ascii_digit())
+                .collect::<String>()
+                .parse::<u64>()
+            {
                 Ok(amount) => amount,
                 Err(_) => {
-                    return Err(format!("Something went wrong parsing duration string `{}`.", duration_string));
-                },
+                    return Err(format!(
+                        "Something went wrong parsing duration string `{}`.",
+                        duration_string
+                    ));
+                }
             };
             let identifier = chars.last().expect("err");
             if !date_map.contains_key(identifier.to_string().as_str()) {
-                return Err(format!("Something went wrong parsing duration string `{}`.", duration_string));
+                return Err(format!(
+                    "Something went wrong parsing duration string `{}`.",
+                    duration_string
+                ));
             }
             let mut name = date_map[&identifier.to_string().as_str()].1.to_string();
-            if amount > 1 {name = format!("{} {}s, ", amount, name)} else {name = format!("{} {}, ", amount, name)}
-            if duration_list.ends_with(&[duration.clone()]) {name.pop();name.pop();}
-            if duration_list.ends_with(&[duration.clone()]) && !duration_list.starts_with(&[duration.clone()]) {name = format!("and {}", name);}
+            if amount > 1 {
+                name = format!("{} {}s, ", amount, name)
+            } else {
+                name = format!("{} {}, ", amount, name)
+            }
+            if duration_list.ends_with(&[duration.clone()]) {
+                name.pop();
+                name.pop();
+            }
+            if duration_list.ends_with(&[duration.clone()])
+                && !duration_list.starts_with(&[duration.clone()])
+            {
+                name = format!("and {}", name);
+            }
             final_string.push_str(name.as_str());
             let unix_unit = date_map[&identifier.to_string().as_str()].0 * amount;
             unix_total += unix_unit
@@ -72,13 +160,15 @@ pub async fn duration_conversion(duration_string: String) -> Result<(u64, u64, S
 }
 
 pub fn format_duration(seconds: u64) -> String {
-    let mut date_units = [(31556952, "Year"),
+    let mut date_units = [
+        (31556952, "Year"),
         (2629743, "Month"),
         (604800, "Week"),
         (86400, "Day"),
         (3600, "Hour"),
         (60, "Minute"),
-        (1, "Second")];
+        (1, "Second"),
+    ];
 
     let mut remaining_seconds = seconds;
     let mut parts = Vec::new();
@@ -91,7 +181,7 @@ pub fn format_duration(seconds: u64) -> String {
         if remaining_seconds >= *unit_seconds {
             let count = remaining_seconds / *unit_seconds;
             remaining_seconds %= *unit_seconds;
-            
+
             if count > 0 {
                 let unit_str = if count == 1 {
                     unit_name.to_string()
@@ -119,7 +209,7 @@ pub fn format_duration(seconds: u64) -> String {
 
 use futures::stream::{self, StreamExt};
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -145,7 +235,11 @@ struct Awarder {
     id: u64,
 }
 
-pub async fn badge_data(reqwest_client: &Client, roblox_id: String, badge_iterations: i64) -> Result<(i64, f64, String), String> {
+pub async fn badge_data(
+    reqwest_client: &Client,
+    roblox_id: String,
+    badge_iterations: i64,
+) -> Result<(i64, f64, String), String> {
     let badge_count = Arc::new(Mutex::new(0));
     let total_win_rate = Arc::new(Mutex::new(0.0));
     let awarders = Arc::new(Mutex::new(IndexMap::new()));
@@ -168,10 +262,15 @@ pub async fn badge_data(reqwest_client: &Client, roblox_id: String, badge_iterat
                     let url = format!(
                         "https://badges.roblox.com/v1/users/{}/badges?limit=100&sortOrder=Asc{}",
                         roblox_id,
-                        if cursor.is_empty() { String::new() } else { format!("&cursor={}", cursor) }
+                        if cursor.is_empty() {
+                            String::new()
+                        } else {
+                            format!("&cursor={}", cursor)
+                        }
                     );
 
-                    let response = reqwest_client.get(&url)
+                    let response = reqwest_client
+                        .get(&url)
                         .send()
                         .await
                         .map_err(|e| format!("Request failed: {}", e))?;
@@ -180,7 +279,9 @@ pub async fn badge_data(reqwest_client: &Client, roblox_id: String, badge_iterat
                         return Err(format!("Request failed with status: {}", response.status()));
                     }
 
-                    let text = response.text().await
+                    let text = response
+                        .text()
+                        .await
                         .map_err(|e| format!("Failed to get response text: {}", e))?;
 
                     let json: Value = serde_json::from_str(&text)
@@ -211,8 +312,8 @@ pub async fn badge_data(reqwest_client: &Client, roblox_id: String, badge_iterat
             match result {
                 Ok(Some(next_cursor)) if !next_cursor.is_empty() => {
                     cursors.push(next_cursor);
-                },
-                Ok(_) => {}, // No more pages
+                }
+                Ok(_) => {} // No more pages
                 Err(e) => return Err(e),
             }
         }
@@ -237,61 +338,94 @@ pub async fn badge_data(reqwest_client: &Client, roblox_id: String, badge_iterat
     let awarders_string = if awarders_vec.is_empty() {
         "No badges found, there are no top badge givers.".to_string()
     } else {
-        awarders_vec.iter().fold(String::new(), |mut acc, (id, count)| {
-            let _ = write!(acc, "\n - {}: {}", id, count);
-            acc
-        })
+        awarders_vec
+            .iter()
+            .fold(String::new(), |mut acc, (id, count)| {
+                let _ = write!(acc, "\n - {}: {}", id, count);
+                acc
+            })
     };
 
     Ok((badge_count, win_rate, awarders_string))
 }
 
-pub async fn roblox_friend_count(reqwest_client: &Client, roblox_id: &str) -> Result<usize, String> {
+pub async fn roblox_friend_count(
+    reqwest_client: &Client,
+    roblox_id: &str,
+) -> Result<usize, String> {
     let url = format!("https://friends.roblox.com/v1/users/{}/friends", roblox_id);
     let response = reqwest_client.get(&url).send().await.unwrap();
     let response_text = response.text().await.unwrap();
-    
+
     let parsed_json: Value = serde_json::from_str(&response_text).unwrap();
-    
-    Ok(parsed_json["data"].as_array()
+
+    Ok(parsed_json["data"]
+        .as_array()
         .ok_or_else(|| "Data is not an array".to_string())?
         .len())
 }
 
 pub async fn roblox_group_count(reqwest_client: &Client, roblox_id: &str) -> Result<usize, String> {
-    let url = format!("https://groups.roblox.com/v2/users/{}/groups/roles?includeLocked=true", roblox_id);
+    let url = format!(
+        "https://groups.roblox.com/v2/users/{}/groups/roles?includeLocked=true",
+        roblox_id
+    );
     let response = reqwest_client.get(&url).send().await.unwrap();
     let response_text = response.text().await.unwrap();
-    
+
     let parsed_json: Value = serde_json::from_str(&response_text).unwrap();
-    
-    Ok(parsed_json["data"].as_array()
+
+    Ok(parsed_json["data"]
+        .as_array()
         .ok_or_else(|| "Data is not an array".to_string())?
         .len())
 }
 
-pub async fn merge_types(reqwest_client: &Client, rbx_client: &roboat::Client, users: Vec<String>) -> (Vec<String>, Vec<String>) {
+pub async fn merge_types(
+    reqwest_client: &Client,
+    rbx_client: &roboat::Client,
+    users: Vec<String>,
+) -> (Vec<String>, Vec<String>) {
     let mut roblox_ids: Vec<String> = Vec::new();
     let mut errors_vector: Vec<String> = Vec::new();
 
     for user in users {
         if user.len() >= 17 && user.chars().all(|c| c.is_ascii_digit()) {
-            let discord_id = match UserId::from_str(user.as_str()) {Ok(id) => id, Err(err) => {
-                errors_vector.push(format!("Couldn't find turn discord id string into actual discord id for {}, details:\n{}", user, err));
-                continue
-            }};
-            let roblox_id_str = match self::discord_id_to_roblox_id(reqwest_client, discord_id).await {Ok(id) => id, Err(err) => {
-                errors_vector.push(format!("Couldn't find turn discord id into roblox id for {}, details:\n{}", user, err));
-                continue
-            }};
+            let discord_id = match UserId::from_str(user.as_str()) {
+                Ok(id) => id,
+                Err(err) => {
+                    errors_vector.push(format!("Couldn't find turn discord id string into actual discord id for {}, details:\n{}", user, err));
+                    continue;
+                }
+            };
+            let roblox_id_str =
+                match self::discord_id_to_roblox_id(reqwest_client, discord_id).await {
+                    Ok(id) => id,
+                    Err(err) => {
+                        errors_vector.push(format!(
+                            "Couldn't find turn discord id into roblox id for {}, details:\n{}",
+                            user, err
+                        ));
+                        continue;
+                    }
+                };
             roblox_ids.push(roblox_id_str)
         } else if user.len() < 17 && user.chars().all(|c| c.is_ascii_digit()) {
             roblox_ids.push(user)
         } else if !user.chars().all(|c| c.is_ascii_digit()) {
-            let user_search = match rbx_client.username_user_details(vec![user.clone()], false).await {Ok(id) => id, Err(err) => {
-                errors_vector.push(format!("Couldn't find user details for {}, details:\n{}", user, err));
-                continue
-            }};
+            let user_search = match rbx_client
+                .username_user_details(vec![user.clone()], false)
+                .await
+            {
+                Ok(id) => id,
+                Err(err) => {
+                    errors_vector.push(format!(
+                        "Couldn't find user details for {}, details:\n{}",
+                        user, err
+                    ));
+                    continue;
+                }
+            };
             for details in user_search {
                 roblox_ids.push(details.id.to_string())
             }
@@ -317,13 +451,16 @@ pub async fn get_roblox_avatar_bust(reqwest_client: &Client, user_id: String) ->
 }
 
 pub async fn new_embed_from_template(framework_data: &Data) -> CreateEmbed {
-    CreateEmbed::new().color(framework_data.bot_color).footer(CreateEmbedFooter::new("Made by RabbyDevs, with 🦀 and ❤️.").icon_url(framework_data.bot_avatar.clone()))
+    CreateEmbed::new().color(framework_data.bot_color).footer(
+        CreateEmbedFooter::new("Made by RabbyDevs, with 🦀 and ❤️.")
+            .icon_url(framework_data.bot_avatar.clone()),
+    )
 }
 
 pub fn extract_emojis(message_content: &str) -> (Vec<String>, Vec<(String, u64)>) {
     let custom_emoji_regex = regex::Regex::new(r"<:([a-zA-Z0-9_]+):(\d+)>").unwrap();
     let mut custom_emojis = Vec::new();
-    
+
     let mut processed_content = message_content.to_string();
 
     for cap in custom_emoji_regex.captures_iter(message_content) {
@@ -333,14 +470,15 @@ pub fn extract_emojis(message_content: &str) -> (Vec<String>, Vec<(String, u64)>
             }
         }
         if let Some(whole_match) = cap.get(0) {
-            processed_content = processed_content.replace(whole_match.as_str(), &" ".repeat(whole_match.len()));
+            processed_content =
+                processed_content.replace(whole_match.as_str(), &" ".repeat(whole_match.len()));
         }
     }
 
     let unicode_emojis: Vec<String> = processed_content
-        .graphemes(true) 
+        .graphemes(true)
         .filter(|&g| emojis::get(g).is_some())
-        .map(|g| g.to_string()) 
+        .map(|g| g.to_string())
         .collect();
 
     (unicode_emojis, custom_emojis)
@@ -354,19 +492,22 @@ mod tests {
     fn test_emoji_extraction() {
         let message = "Hello 👋 :wave: world! <:custom:123456> 🌍 :earth: <:other:789012>";
         let (unicode, custom) = extract_emojis(message);
-        
+
         assert_eq!(unicode, vec!["👋".to_string(), "🌍".to_string()]);
-        assert_eq!(custom, vec![
-            ("custom".to_string(), 123456),
-            ("other".to_string(), 789012)
-        ]);
+        assert_eq!(
+            custom,
+            vec![
+                ("custom".to_string(), 123456),
+                ("other".to_string(), 789012)
+            ]
+        );
     }
 
     #[test]
     fn test_with_only_unicode() {
         let message = "Hello 👋 🌍 world!";
         let (unicode, custom) = extract_emojis(message);
-        
+
         assert_eq!(unicode, vec!["👋".to_string(), "🌍".to_string()]);
         assert_eq!(custom, Vec::<(String, u64)>::new());
     }

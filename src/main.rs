@@ -19,7 +19,7 @@ use std::{
 
 mod main_modules;
 use main_modules::{
-    deleted_attachments::{self, AttachmentStoreDB},
+    deleted_attachments::{self, AttachmentStore, AttachmentStoreDB},
     guide_updater::GuideSystem,
     helper, log_interactions,
     media::{
@@ -285,11 +285,24 @@ async fn event_handler(
                 })
                 .await;
             data.timer_system.start_timer_thread();
+
+            // Start periodic cleanup task for expired modlogs
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5 * 60)); // Run every 5 minutes
+                loop {
+                    interval.tick().await;
+                    let cleaned = log_interactions::cleanup_expired_modlogs();
+                    if cleaned > 0 {
+                        println!("Cleaned up {} expired modlog(s)", cleaned);
+                    }
+                }
+            });
         }
 
         serenity::FullEvent::Message { new_message } => {
-            if new_message.channel_id.to_string()
-                == *CONFIG.modules.logging.attachment_logging_channel_id
+            if new_message.channel_id.to_string() == *CONFIG.modules.logging.cdn_channel_id
+                || new_message.channel_id.to_string()
+                    == *CONFIG.modules.logging.attachment_logging_channel_id
             {
                 return Ok(());
             }
@@ -337,7 +350,54 @@ async fn event_handler(
                 return Ok(());
             }
 
-            // Process videos for conversion
+            let message = CreateMessage::new();
+            let mut files = vec![];
+            for attachment in &new_message.attachments {
+                let output_filename = format!("./.tmp/{}", attachment.filename);
+                let response = data
+                    .reqwest_client
+                    .get(&attachment.url)
+                    .send()
+                    .await
+                    .unwrap();
+                let bytes = response.bytes().await.unwrap();
+                let mut file =
+                    std::fs::File::create(&output_filename).expect("Failed to create input file");
+                file.write_all(&bytes).expect("Failed to write input file");
+                drop(file);
+                files.push(
+                    CreateAttachment::file(
+                        &tokio::fs::File::open(&output_filename).await.unwrap(),
+                        &attachment.filename,
+                    )
+                    .await
+                    .unwrap(),
+                );
+                std::fs::remove_file(&output_filename).unwrap();
+            }
+            let log_channel_id = ChannelId::new(
+                CONFIG
+                    .modules
+                    .logging
+                    .cdn_channel_id
+                    .parse::<u64>()
+                    .unwrap(),
+            );
+            let final_msg = log_channel_id
+                .send_message(&ctx.http, message.add_files(files))
+                .await
+                .unwrap();
+            let user_id = new_message.author.id;
+            let attachments = final_msg.attachments;
+            let created_at = new_message.id.created_at();
+            let message_id = new_message.id;
+            let store = AttachmentStore {
+                message_id,
+                attachments,
+                created_at,
+                user_id,
+            };
+
             for attachment in &new_message.attachments {
                 let Some(content_type) = &attachment.content_type else {
                     continue;
@@ -354,6 +414,26 @@ async fn event_handler(
                     video_convert(new_message, ctx, reqwest_client, attachment).await;
                 });
             }
+
+            data.attachment_db.lock().unwrap().save(&store).unwrap();
+
+            let message_id = new_message.id;
+            let mut i = 0;
+            while i < data.queued_logs.lock().unwrap().len() {
+                let log = data.queued_logs.lock().unwrap().get(i).unwrap().clone();
+                if log.message_id == message_id {
+                    log.do_image_logging(
+                        ctx,
+                        framework.user_data.clone(),
+                        message_id,
+                        new_message.guild_id,
+                        new_message.channel_id,
+                    )
+                    .await;
+                    data.queued_logs.lock().unwrap().remove(i);
+                }
+                i += 1
+            }
         }
 
         serenity::FullEvent::MessageDelete {
@@ -361,6 +441,9 @@ async fn event_handler(
             deleted_message_id,
             guild_id,
         } => {
+            if channel_id.to_string() == *CONFIG.modules.logging.cdn_channel_id {
+                return Ok(());
+            }
             match data
                 .attachment_db
                 .lock()

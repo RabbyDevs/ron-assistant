@@ -7,6 +7,7 @@ use serenity::all::{
 };
 use std::error::Error as StdError;
 use std::sync::Arc;
+use std::time::Instant;
 use parking_lot::RwLock;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
@@ -32,6 +33,7 @@ pub struct PendingModlog {
     pub note: String,
     pub message_id: u64,
     pub channel_id: u64,
+    pub created_at: Instant,
 }
 
 fn build_enum_options() -> Vec<CreateSelectMenuOption> {
@@ -168,6 +170,7 @@ pub async fn handle_log_modal_submit(
         note: note.clone(),
         message_id: interaction.message.as_ref().map(|m| m.id.get()).unwrap_or(0),
         channel_id: interaction.channel_id.get(),
+        created_at: Instant::now(),
     };
 
     PENDING_MODLOGS
@@ -377,7 +380,51 @@ fn is_image_file(filename: &str) -> bool {
 }
 
 /// Cleanup expired modlogs (call periodically)
-pub fn cleanup_expired_modlogs() {
-    // Note: In a production system, you'd want to add timestamps and clean up old ones
-    // For now, this is a placeholder for future enhancement
+pub fn cleanup_expired_modlogs() -> usize {
+    use std::time::Duration;
+
+    const EXPIRY_DURATION: Duration = Duration::from_secs(5 * 60); // 5 minutes
+    let now = Instant::now();
+    let mut cleanup_count = 0;
+
+    // Collect expired modlog IDs and their associated message IDs
+    let mut expired_modlog_ids = Vec::new();
+    let mut expired_message_ids = Vec::new();
+
+    {
+        let modlogs = PENDING_MODLOGS.read();
+        for (modlog_id, modlog) in modlogs.iter() {
+            if now.duration_since(modlog.created_at) > EXPIRY_DURATION {
+                expired_modlog_ids.push(modlog_id.clone());
+            }
+        }
+    }
+
+    // Remove expired modlogs
+    if !expired_modlog_ids.is_empty() {
+        let mut modlogs = PENDING_MODLOGS.write();
+        for modlog_id in &expired_modlog_ids {
+            modlogs.remove(modlog_id);
+            cleanup_count += 1;
+        }
+    }
+
+    // Find and remove corresponding message mappings
+    {
+        let message_map = MESSAGE_TO_MODLOG.read();
+        for (message_id, modlog_id) in message_map.iter() {
+            if expired_modlog_ids.contains(modlog_id) {
+                expired_message_ids.push(*message_id);
+            }
+        }
+    }
+
+    if !expired_message_ids.is_empty() {
+        let mut message_map = MESSAGE_TO_MODLOG.write();
+        for message_id in expired_message_ids {
+            message_map.remove(&message_id);
+        }
+    }
+
+    cleanup_count
 }

@@ -1,5 +1,6 @@
 use ::serenity::all::{
-    ChannelId, Color, CreateAttachment, CreateMessage, GuildId, MessageId, ReactionType, RoleId,
+    ChannelId, Color, CreateAttachment, CreateMessage, GuildId, MessageId, MessageReference,
+    ReactionType, RoleId,
 };
 use once_cell::sync::Lazy;
 use poise::serenity_prelude as serenity;
@@ -18,7 +19,7 @@ use std::{
 
 mod main_modules;
 use main_modules::{
-    deleted_attachments::{self, AttachmentStore, AttachmentStoreDB},
+    deleted_attachments::{self, AttachmentStoreDB},
     guide_updater::GuideSystem,
     helper, log_interactions,
     media::{
@@ -287,64 +288,56 @@ async fn event_handler(
         }
 
         serenity::FullEvent::Message { new_message } => {
-            if new_message.channel_id.to_string() == *CONFIG.modules.logging.cdn_channel_id
-                || new_message.channel_id.to_string()
-                    == *CONFIG.modules.logging.attachment_logging_channel_id
+            if new_message.channel_id.to_string()
+                == *CONFIG.modules.logging.attachment_logging_channel_id
             {
                 return Ok(());
             }
+
+            // Check if this is a reply to a modlog image upload request
+            if let Some(MessageReference {
+                message_id: Some(replied_to_id),
+                ..
+            }) = &new_message.message_reference
+            {
+                let replied_msg_id = replied_to_id.get();
+                let modlog_id_option = log_interactions::MESSAGE_TO_MODLOG
+                    .read()
+                    .get(&replied_msg_id)
+                    .cloned();
+
+                if let Some(modlog_id) = modlog_id_option {
+                    // This is a reply to a modlog image upload request
+                    if !new_message.attachments.is_empty() {
+                        // Process the image upload for this modlog
+                        let attachments = new_message.attachments.clone();
+                        if let Err(err) = log_interactions::post_modlog_with_images(
+                            ctx,
+                            &modlog_id,
+                            &attachments,
+                        )
+                        .await
+                        {
+                            eprintln!("Error posting modlog with images: {:?}", err);
+                            let _ = new_message
+                                .reply(ctx, "Failed to post modlog with images. The modlog may have expired.")
+                                .await;
+                        } else {
+                            // Delete the user's message after successfully posting
+                            let _ = new_message.delete(ctx).await;
+                        }
+                        // Remove the mapping since we've processed it
+                        log_interactions::MESSAGE_TO_MODLOG.write().remove(&replied_msg_id);
+                        return Ok(());
+                    }
+                }
+            }
+
             if new_message.attachments.is_empty() {
                 return Ok(());
             }
 
-            let message = CreateMessage::new();
-            let mut files = vec![];
-            for attachment in &new_message.attachments {
-                let output_filename = format!("./.tmp/{}", attachment.filename);
-                let response = data
-                    .reqwest_client
-                    .get(&attachment.url)
-                    .send()
-                    .await
-                    .unwrap();
-                let bytes = response.bytes().await.unwrap();
-                let mut file =
-                    std::fs::File::create(&output_filename).expect("Failed to create input file");
-                file.write_all(&bytes).expect("Failed to write input file");
-                drop(file);
-                files.push(
-                    CreateAttachment::file(
-                        &tokio::fs::File::open(&output_filename).await.unwrap(),
-                        &attachment.filename,
-                    )
-                    .await
-                    .unwrap(),
-                );
-                std::fs::remove_file(&output_filename).unwrap();
-            }
-            let log_channel_id = ChannelId::new(
-                CONFIG
-                    .modules
-                    .logging
-                    .cdn_channel_id
-                    .parse::<u64>()
-                    .unwrap(),
-            );
-            let final_msg = log_channel_id
-                .send_message(&ctx.http, message.add_files(files))
-                .await
-                .unwrap();
-            let user_id = new_message.author.id;
-            let attachments = final_msg.attachments;
-            let created_at = new_message.id.created_at();
-            let message_id = new_message.id;
-            let store = AttachmentStore {
-                message_id,
-                attachments,
-                created_at,
-                user_id,
-            };
-
+            // Process videos for conversion
             for attachment in &new_message.attachments {
                 let Some(content_type) = &attachment.content_type else {
                     continue;
@@ -361,26 +354,6 @@ async fn event_handler(
                     video_convert(new_message, ctx, reqwest_client, attachment).await;
                 });
             }
-
-            data.attachment_db.lock().unwrap().save(&store).unwrap();
-
-            let message_id = new_message.id;
-            let mut i = 0;
-            while i < data.queued_logs.lock().unwrap().len() {
-                let log = data.queued_logs.lock().unwrap().get(i).unwrap().clone();
-                if log.message_id == message_id {
-                    log.do_image_logging(
-                        ctx,
-                        framework.user_data.clone(),
-                        message_id,
-                        new_message.guild_id,
-                        new_message.channel_id,
-                    )
-                    .await;
-                    data.queued_logs.lock().unwrap().remove(i);
-                }
-                i += 1
-            }
         }
 
         serenity::FullEvent::MessageDelete {
@@ -388,9 +361,6 @@ async fn event_handler(
             deleted_message_id,
             guild_id,
         } => {
-            if channel_id.to_string() == *CONFIG.modules.logging.cdn_channel_id {
-                return Ok(());
-            }
             match data
                 .attachment_db
                 .lock()
@@ -557,6 +527,28 @@ async fn event_handler(
                                 .await
                     {
                         eprintln!("Error handling create log button: {:?}", err);
+                    }
+                    // Handle "Upload Images" button clicks
+                    if component_interaction
+                        .data
+                        .custom_id
+                        .starts_with("upload_images:")
+                        && let Err(err) =
+                            log_interactions::handle_upload_images_button(ctx, component_interaction)
+                                .await
+                    {
+                        eprintln!("Error handling upload images button: {:?}", err);
+                    }
+                    // Handle "Skip Images" button clicks
+                    if component_interaction
+                        .data
+                        .custom_id
+                        .starts_with("skip_images:")
+                        && let Err(err) =
+                            log_interactions::handle_skip_images_button(ctx, component_interaction)
+                                .await
+                    {
+                        eprintln!("Error handling skip images button: {:?}", err);
                     }
                 }
                 serenity::Interaction::Modal(modal_interaction) => {

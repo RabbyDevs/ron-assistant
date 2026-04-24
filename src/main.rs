@@ -1,5 +1,6 @@
 use ::serenity::all::{
-    ChannelId, Color, CreateAttachment, CreateMessage, GuildId, MessageId, ReactionType, RoleId,
+    ChannelId, Color, CreateAttachment, CreateMessage, GuildId, MessageId, MessageReference,
+    ReactionType, RoleId,
 };
 use once_cell::sync::Lazy;
 use poise::serenity_prelude as serenity;
@@ -284,6 +285,18 @@ async fn event_handler(
                 })
                 .await;
             data.timer_system.start_timer_thread();
+
+            // Start periodic cleanup task for expired modlogs
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5 * 60)); // Run every 5 minutes
+                loop {
+                    interval.tick().await;
+                    let cleaned = log_interactions::cleanup_expired_modlogs();
+                    if cleaned > 0 {
+                        println!("Cleaned up {} expired modlog(s)", cleaned);
+                    }
+                }
+            });
         }
 
         serenity::FullEvent::Message { new_message } => {
@@ -293,6 +306,46 @@ async fn event_handler(
             {
                 return Ok(());
             }
+
+            // Check if this is a reply to a modlog image upload request
+            if let Some(MessageReference {
+                message_id: Some(replied_to_id),
+                ..
+            }) = &new_message.message_reference
+            {
+                let replied_msg_id = replied_to_id.get();
+                let modlog_id_option = log_interactions::MESSAGE_TO_MODLOG
+                    .read()
+                    .get(&replied_msg_id)
+                    .cloned();
+
+                if let Some(modlog_id) = modlog_id_option {
+                    // This is a reply to a modlog image upload request
+                    if !new_message.attachments.is_empty() {
+                        // Process the image upload for this modlog
+                        let attachments = new_message.attachments.clone();
+                        if let Err(err) = log_interactions::post_modlog_with_images(
+                            ctx,
+                            &modlog_id,
+                            &attachments,
+                        )
+                        .await
+                        {
+                            eprintln!("Error posting modlog with images: {:?}", err);
+                            let _ = new_message
+                                .reply(ctx, "Failed to post modlog with images. The modlog may have expired.")
+                                .await;
+                        } else {
+                            // Delete the user's message after successfully posting
+                            let _ = new_message.delete(ctx).await;
+                        }
+                        // Remove the mapping since we've processed it
+                        log_interactions::MESSAGE_TO_MODLOG.write().remove(&replied_msg_id);
+                        return Ok(());
+                    }
+                }
+            }
+
             if new_message.attachments.is_empty() {
                 return Ok(());
             }
@@ -557,6 +610,28 @@ async fn event_handler(
                                 .await
                     {
                         eprintln!("Error handling create log button: {:?}", err);
+                    }
+                    // Handle "Upload Images" button clicks
+                    if component_interaction
+                        .data
+                        .custom_id
+                        .starts_with("upload_images:")
+                        && let Err(err) =
+                            log_interactions::handle_upload_images_button(ctx, component_interaction)
+                                .await
+                    {
+                        eprintln!("Error handling upload images button: {:?}", err);
+                    }
+                    // Handle "Skip Images" button clicks
+                    if component_interaction
+                        .data
+                        .custom_id
+                        .starts_with("skip_images:")
+                        && let Err(err) =
+                            log_interactions::handle_skip_images_button(ctx, component_interaction)
+                                .await
+                    {
+                        eprintln!("Error handling skip images button: {:?}", err);
                     }
                 }
                 serenity::Interaction::Modal(modal_interaction) => {

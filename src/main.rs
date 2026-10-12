@@ -631,7 +631,6 @@ async fn main() {
     tokio::spawn(periodic_cleanup());
     let discord_api_key = &CONFIG.main.discord_api_key;
     let intents = GatewayIntents::GUILDS
-        | GatewayIntents::GUILD_PRESENCES
         | GatewayIntents::GUILD_MEMBERS
         | GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT
